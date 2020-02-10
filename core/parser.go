@@ -1135,7 +1135,7 @@ func (parser *PdfParser) seekToEOFMarker(fSize int64) error {
 	var offset int64
 
 	// Define an buffer length in terms of how many bytes to read from the end of the file.
-	var buflen int64 = 1000
+	var buflen int64 = 2048
 
 	for offset < fSize {
 		if fSize <= (buflen + offset) {
@@ -1162,7 +1162,7 @@ func (parser *PdfParser) seekToEOFMarker(fSize int64) error {
 		}
 
 		common.Log.Debug("Warning: EOF marker not found! - continue seeking")
-		offset += buflen
+		offset += buflen - 4
 	}
 
 	common.Log.Debug("Error: EOF marker was not found.")

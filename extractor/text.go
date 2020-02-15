@@ -919,6 +919,7 @@ type PageText struct {
 	marks     []textMark // Texts and their positions on a PDF page.
 	viewText  string     // Extracted page text.
 	viewMarks []TextMark // Public view of `marks`.
+	viewWords []TextMarkArray
 }
 
 // String returns a string describing `pt`.
@@ -940,6 +941,11 @@ func (pt PageText) length() int {
 // Text returns the extracted page text.
 func (pt PageText) Text() string {
 	return pt.viewText
+}
+
+// Text returns the extracted page text words.
+func (pt PageText) Words() []TextMarkArray {
+	return pt.viewWords
 }
 
 // ToText returns the page text as a single string.
@@ -973,6 +979,14 @@ func (ma TextMarkArray) String() string {
 	m0 := ma.marks[0]
 	m1 := ma.marks[n-1]
 	return fmt.Sprintf("{TEXTMARKARRAY: %d elements\n\tfirst=%s\n\t last=%s}", n, m0, m1)
+}
+
+func (ma TextMarkArray) Text() string {
+	texts := make([]string, len(ma.marks))
+	for i, m := range ma.marks {
+		texts[i] = m.Text
+	}
+	return strings.Join(texts, "")
 }
 
 // Elements returns the TextMarks in `ma`.
@@ -1127,8 +1141,10 @@ func (pt *PageText) computeViews() {
 	// common.Log.Debug("computeViews: After sorting %s", pt)
 	lines := pt.toLines(tol)
 	texts := make([]string, len(lines))
+	var words []TextMarkArray
 	for i, l := range lines {
-		texts[i] = strings.Join(l.words(), wordJoiner)
+		texts[i] = strings.Join(l.texts(), wordJoiner)
+		words = append(words, l.segmentWords()...)
 	}
 	text := strings.Join(texts, lineJoiner)
 	var marks []TextMark
@@ -1165,6 +1181,7 @@ func (pt *PageText) computeViews() {
 		}
 	}
 	pt.viewText = text
+	pt.viewWords = words
 	pt.viewMarks = marks
 }
 
@@ -1255,12 +1272,31 @@ type textLine struct {
 }
 
 // words returns the texts in `tl`.
-func (tl textLine) words() []string {
-	var texts []string
-	for _, tm := range tl.marks {
-		texts = append(texts, tm.Text)
+func (tl textLine) texts() []string {
+	texts := make([]string, len(tl.marks))
+	for i, tm := range tl.marks {
+		texts[i] = tm.Text
 	}
 	return texts
+}
+
+func (tl textLine) segmentWords() []TextMarkArray {
+	var words []TextMarkArray
+	var w TextMarkArray
+	for _, tm := range tl.marks {
+		if tm.Meta || isTextSpace(tm.Text) {
+			if len(w.marks) > 0 {
+				words = append(words, w)
+				w.marks = nil
+			}
+		} else {
+			w.marks = append(w.marks, tm)
+		}
+	}
+	if len(w.marks) > 0 {
+		words = append(words, w)
+	}
+	return words
 }
 
 // toLines returns the text and positions in `pt.marks` as a slice of textLine.
@@ -1288,7 +1324,7 @@ func (pt PageText) toLines(tol float64) []textLine {
 // that text is horizontal) before calling this function.
 func (pt PageText) toLinesOrient(tol float64) []textLine {
 	if len(pt.marks) == 0 {
-		return []textLine{}
+		return nil
 	}
 	var marks []TextMark
 	var lines []textLine
@@ -1297,8 +1333,8 @@ func (pt PageText) toLinesOrient(tol float64) []textLine {
 
 	scanning := false
 
-	averageCharWidth := exponAve{}
-	wordSpacing := exponAve{}
+	var averageCharWidth exponAve
+	var wordSpacing exponAve
 	lastEndX := 0.0 // lastEndX is pt.marks[i-1].orientedEnd.X
 
 	for _, tm := range pt.marks {
@@ -1312,8 +1348,8 @@ func (pt PageText) toLinesOrient(tol float64) []textLine {
 				}
 				lines = append(lines, tl)
 			}
-			marks = []TextMark{}
-			xx = []float64{}
+			marks = nil
+			xx = nil
 			y = tm.orientedStart.Y
 			scanning = false
 		}

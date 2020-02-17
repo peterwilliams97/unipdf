@@ -64,6 +64,11 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	to := newTextObject(e, resources, contentstream.GraphicsState{}, &state, &fontStack)
 	var inTextObj bool
 
+	// Uncomment the following 3 statements to log the content stream.
+	// common.Log.Info("contents* %d -----------------------------", len(contents))
+	// fmt.Println(contents)
+	// common.Log.Info("contents+ -----------------------------")
+
 	cstreamParser := contentstream.NewContentStreamParser(contents)
 	operations, err := cstreamParser.Parse()
 	if err != nil {
@@ -749,15 +754,16 @@ func (to *textObject) renderText(data []byte) error {
 		// td0 is where this character ends. td is where the next character starts.
 		td0 := translationMatrix(t0)
 		td := translationMatrix(t)
+		end := to.gs.CTM.Mult(to.tm).Mult(td0)
 
-		common.Log.Trace("\"%c\" stateMatrix=%s CTM=%s Tm=%s", r, stateMatrix, to.gs.CTM, to.tm)
-		common.Log.Trace("tfs=%.3f th=%.3f Tc=%.3f w=%.3f (Tw=%.3f)", tfs, th, state.tc, w, state.tw)
-		common.Log.Trace("m=%s c=%+v t0=%+v td0=%s trm0=%s", m, c, t0, td0, td0.Mult(to.tm).Mult(to.gs.CTM))
+		common.Log.Trace("m=%+v c=%+v tfs=%.3f w=%.3f th=%.3f -> t0=%s", m, c, tfs, w, th, t0)
+		common.Log.Trace("end:\n\tCTM=%s\n\t tm=%s\n\ttd0=%s\n\t -> %s xlat=%s",
+			to.gs.CTM, to.tm, td0, end, translation(end))
 
 		mark := to.newTextMark(
 			string(r),
 			trm,
-			translation(to.gs.CTM.Mult(to.tm).Mult(td0)),
+			translation(end),
 			math.Abs(spaceWidth*trm.ScalingFactorX()),
 			font,
 			to.state.tc)
@@ -893,9 +899,9 @@ func nearestMultiple(x float64, m int) int {
 
 // String returns a string describing `tm`.
 func (tm textMark) String() string {
-	return fmt.Sprintf("textMark{@%03d [%.3f,%.3f] w=%.1f %d° %q}",
+	return fmt.Sprintf("textMark{@%03d [%.3f,%.3f] w=%.1f %d° %q %5.1f}",
 		tm.count, tm.orientedStart.X, tm.orientedStart.Y, tm.Width(), tm.orient,
-		truncate(tm.text, 100))
+		truncate(tm.text, 100), tm.bbox)
 }
 
 // Width returns the width of `tm`.text in the text direction.
@@ -1280,6 +1286,7 @@ func (tl textLine) texts() []string {
 	return texts
 }
 
+// segmentWords returns `tl` split by word boundaries.
 func (tl textLine) segmentWords() []TextMarkArray {
 	var words []TextMarkArray
 	var w TextMarkArray

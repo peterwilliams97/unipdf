@@ -857,6 +857,13 @@ func (to *textObject) newTextMark(text string, trm transform.Matrix, end transfo
 	default:
 		bbox.Ury += height
 	}
+	if bbox.Llx > bbox.Urx {
+		bbox.Llx, bbox.Urx = bbox.Urx, bbox.Llx
+	}
+	if bbox.Lly > bbox.Ury {
+		bbox.Lly, bbox.Ury = bbox.Ury, bbox.Lly
+	}
+
 	tm := textMark{
 		text:          text,
 		orient:        orient,
@@ -1048,17 +1055,20 @@ func (ma *TextMarkArray) RangeOffset(start, end int) (*TextMarkArray, error) {
 
 // BBox returns the smallest axis-aligned rectangle that encloses all the TextMarks in `ma`.
 func (ma *TextMarkArray) BBox() (model.PdfRectangle, bool) {
-	if len(ma.marks) == 0 {
-		return model.PdfRectangle{}, false
-	}
-	bbox := ma.marks[0].BBox
-	for _, tm := range ma.marks[1:] {
-		if isTextSpace(tm.Text) {
+	var bbox model.PdfRectangle
+	found := false
+	for _, tm := range ma.marks {
+		if tm.Meta || isTextSpace(tm.Text) {
 			continue
 		}
-		bbox = rectUnion(bbox, tm.BBox)
+		if found {
+			bbox = rectUnion(bbox, tm.BBox)
+		} else {
+			bbox = tm.BBox
+			found = true
+		}
 	}
-	return bbox, true
+	return bbox, found
 }
 
 // rectUnion returns the smallest axis-aligned rectangle that contains `b1` and `b2`.

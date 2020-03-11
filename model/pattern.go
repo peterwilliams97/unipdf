@@ -7,6 +7,7 @@ package model
 
 import (
 	"errors"
+	"strings"
 
 	"fmt"
 
@@ -76,13 +77,45 @@ type PdfTilingPattern struct {
 	Matrix     *core.PdfObjectArray // Pattern matrix (6 numbers).
 }
 
+func (p *PdfTilingPattern) String() string {
+	if p == nil {
+		return "{TILINGPATTERN: nil}"
+	}
+	var parts []string
+	if p.PaintType != nil {
+		if paintType, ok := core.GetIntVal(p.PaintType); ok {
+			parts = append(parts, fmt.Sprintf("PaintType=%d", paintType))
+		}
+	}
+	if p.TilingType != nil {
+		if tilingType, ok := core.GetIntVal(p.TilingType); ok {
+			parts = append(parts, fmt.Sprintf("TilingType=%d", tilingType))
+		}
+	}
+	if p.XStep != nil {
+		if x, ok := core.GetFloatVal(p.XStep); ok {
+			parts = append(parts, fmt.Sprintf("XStep=%.1f", x))
+		}
+	}
+	if p.YStep != nil {
+		if y, ok := core.GetFloatVal(p.YStep); ok {
+			parts = append(parts, fmt.Sprintf("YStep=%.1f", y))
+		}
+	}
+	if p.Matrix != nil {
+		if m, ok := core.GetArray(p.Matrix); ok {
+			parts = append(parts, fmt.Sprintf("Matrix=%s", *m))
+		}
+	}
+	if p.BBox != nil {
+		parts = append(parts, fmt.Sprintf("BBox=%.1f", *p.BBox))
+	}
+	return fmt.Sprintf("{TILINGPATTERN: %s}", strings.Join(parts, " "))
+}
+
 // IsColored specifies if the pattern is colored.
 func (p *PdfTilingPattern) IsColored() bool {
-	if p.PaintType != nil && *p.PaintType == 1 {
-		return true
-	}
-
-	return false
+	return p.PaintType != nil && *p.PaintType == 1
 }
 
 // GetContentStream returns the pattern cell's content stream

@@ -2340,8 +2340,7 @@ func (enc *MultiEncoder) GetFilterName() string {
 	return name
 }
 
-// MakeDecodeParams makes a new instance of an encoding dictionary based on
-// the current encoder settings.
+// MakeDecodeParams makes a new instance of an encoding dictionary based on the current encoder settings.
 func (enc *MultiEncoder) MakeDecodeParams() PdfObject {
 	if len(enc.encoders) == 0 {
 		return nil
@@ -2360,7 +2359,6 @@ func (enc *MultiEncoder) MakeDecodeParams() PdfObject {
 			array.Append(decodeParams)
 		}
 	}
-
 	return array
 }
 
@@ -2372,7 +2370,12 @@ func (enc *MultiEncoder) AddEncoder(encoder StreamEncoder) {
 // MakeStreamDict makes a new instance of an encoding dictionary for a stream object.
 func (enc *MultiEncoder) MakeStreamDict() *PdfObjectDictionary {
 	dict := MakeDict()
-	dict.Set("Filter", MakeName(enc.GetFilterName()))
+
+	names := make([]PdfObject, len(enc.encoders))
+	for i, e := range enc.encoders {
+		names[i] = MakeName(e.GetFilterName())
+	}
+	dict.Set("Filter", MakeArray(names...))
 
 	// Pass all values from children, except Filter and DecodeParms.
 	for _, encoder := range enc.encoders {

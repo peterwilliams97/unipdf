@@ -36,9 +36,9 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 		paras[i] = composePara(para)
 	}
 	if verbose || true {
-		common.Log.Info("unsorted=========----------=====")
+		common.Log.Info("unsorted: %d paras =========----------=====", len(paras))
 		for i, para := range paras {
-			common.Log.Info("paras[%d]=%.2f%q", i, para.PdfRectangle, truncate(paras[i].text(), 200))
+			fmt.Printf("%4d: %6.2f %q\n", i, para.PdfRectangle, truncate(paras[i].text(), 60))
 		}
 	}
 
@@ -174,6 +174,7 @@ func (paras paraList) writeText(w io.Writer) {
 	for ip, para := range paras {
 		if useTables {
 			para.writeText(w)
+			w.Write([]byte("\n"))
 		} else {
 			for il, line := range para.lines {
 				s := line.text()
@@ -201,6 +202,16 @@ func (paras paraList) writeText(w io.Writer) {
 			w.Write([]byte("\n"))
 		}
 	}
+}
+
+func (paras paraList) toTables() []TextTable {
+	var tables []TextTable
+	for _, para := range paras {
+		if para.table != nil {
+			tables = append(tables, para.table.toTextTable())
+		}
+	}
+	return tables
 }
 
 // toTextMarks creates the TextMarkArray corresponding to the extracted text created by

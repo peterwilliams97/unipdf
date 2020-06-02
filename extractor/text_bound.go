@@ -151,3 +151,17 @@ func overlappedXRect(r0, r1 model.PdfRectangle) bool {
 func overlappedYRect(r0, r1 model.PdfRectangle) bool {
 	return (r0.Lly <= r1.Lly && r1.Lly <= r0.Ury) || (r0.Lly <= r1.Ury && r1.Ury <= r0.Ury)
 }
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

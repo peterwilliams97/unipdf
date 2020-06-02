@@ -59,11 +59,12 @@ func (p *textPara) writeText(w io.Writer) {
 				cell.writeCellText(w)
 				w.Write([]byte(" "))
 			}
-			w.Write([]byte("\n"))
+			if y < p.table.h-1 {
+				w.Write([]byte("\n"))
+			}
 		}
 	} else {
 		p.writeCellText(w)
-		w.Write([]byte("\n"))
 	}
 }
 

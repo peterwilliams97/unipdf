@@ -20,6 +20,10 @@ type textTable struct {
 	cells cellList
 }
 
+func (t *textTable) String() string {
+	return fmt.Sprintf("[%dx%d] %6.2f", t.w, t.h, t.PdfRectangle)
+}
+
 func (t textTable) bbox() model.PdfRectangle {
 	return t.PdfRectangle
 }
@@ -34,35 +38,18 @@ func (paras paraList) extractTables() paraList {
 	if len(paras) < 4 {
 		return nil
 	}
-	show := func(title string) {
-		common.Log.Info("%8s: %d=========----------=====", title, len(paras))
-		for i, para := range paras {
-			text := para.text()
-			tabl := "  "
-			if para.table != nil {
-				tabl = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
-			}
-			fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tabl, truncate(text, 50))
-			if len(text) == 0 {
-				panic("empty")
-			}
-			if para.table != nil && len(para.table.cells) == 0 {
-				panic(para)
-			}
-		}
-	}
+	showParas := paras.log
+
 	tables := paras.extractTableAtoms()
+	logTables(tables, "table atoms")
 	tables = combineTables(tables)
-	common.Log.Info("combined tables %d ================", len(tables))
-	for i, t := range tables {
-		t.log(fmt.Sprintf("combined %d", i))
-	}
+	logTables(tables, "table molecules")
 	// if len(tables) == 0 {panic("NO TABLES")}
-	show("tables extracted")
+	showParas("tables extracted")
 	paras = paras.applyTables(tables)
-	show("tables applied")
+	showParas("tables applied")
 	paras = paras.trimTables()
-	show("tables trimmed")
+	showParas("tables trimmed")
 
 	return paras
 }
@@ -127,7 +114,7 @@ func (paras paraList) applyTables(tables []textTable) paraList {
 	return tabled
 }
 
-// extractTableAtome returns all the 2x2 table candidateds in `paras`.
+// extractTableAtome returns all the 2x2 table candidates in `paras`.
 func (paras paraList) extractTableAtoms() []textTable {
 	// Pre-sort by reading direction then depth
 	sort.Slice(paras, func(i, j int) bool {
@@ -137,11 +124,11 @@ func (paras paraList) extractTableAtoms() []textTable {
 	var llx0, lly0, llx1, lly1 float64
 	var tables []textTable
 
-	for _, para1 := range paras {
+	for i1, para1 := range paras {
 		llx0, lly0 = DBL_MAX, DBL_MIN
 		llx1, lly1 = DBL_MAX, DBL_MIN
 
-		// Build a table fragment of 4 cells
+		// Build a table atom of 4 cells
 		//   0 1
 		//   2 3
 		// where
@@ -168,52 +155,34 @@ func (paras paraList) extractTableAtoms() []textTable {
 				cells[3] = para2
 			}
 		}
-		// if we found any then look whether they form a table  !@#$
+		// Do we have a table atom?
 		if !(cells[1] != nil && cells[2] != nil && cells[3] != nil) {
 			continue
 		}
+		// cells.log(fmt.Sprintf("table atom i1=%d", i1))
+
 		// 1 cannot overlap with 2 in x and y
 		// 3 cannot overlap with 2 in x and with 1 in y
 		// 3 has to overlap with 2 in y and with 1 in x
-
 		if (xOverlap(cells[2], cells[3]) || yOverlap(cells[1], cells[3]) ||
 			xOverlap(cells[1], cells[2]) || yOverlap(cells[1], cells[2])) ||
 			!(xOverlap(cells[1], cells[3]) && yOverlap(cells[2], cells[3])) {
 			continue
 		}
+		// common.Log.Info("OVERLAP A) i1=%d", i1)
 
-		// common.Log.Info("@@10 ip=%d %s", ip, truncate(para1.text(), 40))
-
-		deltaX := cells.fontsize()
-		deltaY := deltaX
-		//       deltaX *= minColSpacing1;  !@#$
-		//       deltaY *= maxIntraLineDelta;
-		deltaX *= maxIntraReadingGapR
-		deltaY *= lineDepthR
-
-		correspondenceX := cells.alignedX(cells.fontsize() * maxIntraReadingGapR)
-		correspondenceY := cells.alignedY(cells.fontsize() * lineDepthR)
+		scoreX := cells.aligned2x2X(cells.fontsize() * maxIntraReadingGapR)
+		scoreY := cells.aligned2x2Y(cells.fontsize() * lineDepthR)
+		common.Log.Info("OVERLAP C) i1=%d scoreX=%d scoreY=%d", i1, scoreX, scoreY)
 
 		// are blocks aligned in x and y ?
-		if correspondenceX > 0 && correspondenceY > 0 {
+		if scoreX > 0 && scoreY > 0 {
 			table := newTable(cells, 2, 2)
 			tables = append(tables, table)
 			table.log("New textTable")
-			// common.Log.Info("New textTable\n      %6.2f", table.PdfRectangle)
-			// for i, p := range cells {
-			// 	fmt.Printf("%4d: %6.2f %q\n", i, p.PdfRectangle, truncate(p.text(), 50))
-			// }
 		}
 	}
 	return tables
-}
-
-func (table textTable) log(title string) {
-	common.Log.Info("~~~ %s: %s: %d x %d\n      %6.2f", title, fileLine(1, false),
-		table.w, table.h, table.PdfRectangle)
-	for i, p := range table.cells {
-		fmt.Printf("%4d: %6.2f %q\n", i, p.PdfRectangle, truncate(p.text(), 50))
-	}
 }
 
 // 0 1
@@ -224,36 +193,9 @@ func (table textTable) log(title string) {
 //   A[1] == B[0] right
 //   A[2] == C[0] down
 func combineTables(tables []textTable) []textTable {
-	// if len(tables) == 0 {panic("tables")}
 	tablesY := combineTablesY(tables)
-	// if len(tablesY) == 0 {	panic("tablesY")}
-	heightTables := map[int][]textTable{}
-	for _, table := range tablesY {
-		heightTables[table.h] = append(heightTables[table.h], table)
-	}
-	// if len(heightTables) == 0 {panic("heightTables")}
-	var heights []int
-	for h := range heightTables {
-		heights = append(heights, h)
-	}
-	// Try to extend tallest tables to the right
-	sort.Slice(heights, func(i, j int) bool { return heights[i] > heights[j] })
-	// for _, h := range heights {
-	// 	columns := heightTables[h]
-	// 	if len(columns) < 2 {
-	// 		continue
-	// 	}
-	// 	heightTables[h] = combineTablesX(columns)
-	// }
-
-	var combined []textTable
-	for _, h := range heights {
-		combined = append(combined, heightTables[h]...)
-	}
-	for i, table := range combined {
-		table.log(fmt.Sprintf("Combined %d", i))
-	}
-	return combined
+	tablesX := combineTablesX(tablesY)
+	return tablesX
 }
 
 func combineTablesY(tables []textTable) []textTable {
@@ -287,11 +229,14 @@ func combineTablesY(tables []textTable) []textTable {
 				c1[0], c1[1],
 				c2[2], c2[3],
 			}
-			alX := cells.alignedX(fontsize * maxIntraReadingGapR)
-			alY := cells.alignedY(fontsize * lineDepthR)
+			alX := cells.aligned2x2X(fontsize * maxIntraReadingGapR)
+			alY := cells.aligned2x2Y(fontsize * lineDepthR)
 			common.Log.Info("alX=%d alY=%d", alX, alY)
 			if !(alX > 0 && alY > 0) {
 				if combo != nil {
+					common.Log.Info("BREAK: i1=%d i2=%d", i1, i2)
+					t1.log("t1")
+					t2.log("t2")
 					combinedTables = append(combinedTables, *combo)
 				}
 				combo = nil
@@ -304,7 +249,7 @@ func combineTablesY(tables []textTable) []textTable {
 
 			w := combo.w
 			h := combo.h + t2.h - 1
-			common.Log.Info("COMBINE! %dx%d", w, h)
+			common.Log.Info("COMBINE! %dx%d i1=%d i2=%d", w, h, i1, i2)
 			combined := make(cellList, w*h)
 			for y := 0; y < t1.h; y++ {
 				for x := 0; x < w; x++ {
@@ -319,6 +264,7 @@ func combineTablesY(tables []textTable) []textTable {
 			}
 			combo.cells = combined
 			combo.h = h
+			combo.PdfRectangle = rectUnion(combo.PdfRectangle, t2.PdfRectangle)
 			combo.log("combo")
 			removed[i2] = true
 			fontsize = combo.cells.fontsize()
@@ -342,48 +288,78 @@ func combineTablesY(tables []textTable) []textTable {
 }
 
 func combineTablesX(tables []textTable) []textTable {
-	sort.Slice(tables, func(i, j int) bool { return tables[i].Llx < tables[j].Llx })
+	sort.Slice(tables, func(i, j int) bool {
+		ti, tj := tables[i], tables[j]
+		if ti.h != tj.h {
+			return ti.h > tj.h
+		}
+		return ti.Llx < tj.Llx
+	})
 	removed := map[int]bool{}
 	for i1, t1 := range tables {
 		if _, ok := removed[i1]; ok {
 			continue
 		}
 		fontsize := t1.cells.fontsize()
-		c1 := t1.corners()
+
+		t1right := t1.column(t1.w - 1)
+		t1Map := t1right.cellSet()
+		overlapTable := map[int]*textTable{}
+		t2Width := 0
 		for i2, t2 := range tables {
 			if _, ok := removed[i2]; ok {
 				continue
 			}
-			if t1.w != t2.w {
+			if i2 <= i1 {
 				continue
 			}
-			c2 := t2.corners()
-			if c1[1] != c2[0] {
+			// t1 is taller than t2
+			t2TL := t2.cells[0]
+			if _, ok := t1Map[t2TL]; !ok {
 				continue
 			}
-			cells := cellList{
-				c1[0], c2[1],
-				c1[2], c2[3],
+			t2left := t2.column(0)
+			if t2TL != t2left[0] {
+				panic("t's don't agree")
 			}
-			if !(cells.alignedX(fontsize*maxIntraReadingGapR) > 0 &&
-				cells.alignedY(fontsize*lineDepthR) > 0) {
+			v0, v1 := t1right.overlapRange(t2left)
+			if v0 < 0 {
 				continue
 			}
-			w := t1.w + t2.w
+			common.Log.Info("v0=%d v1=%d t1right=%d t2left=%d", v0, v1, len(t1right), len(t2left))
+			aligned := true
+			for k := 0; k < v1-v0; k++ {
+				t1c := t1right[v0+k]
+				t2c := t2left[k]
+				cells := cellList{t1c, t2c}
+				if cells.alignedY(fontsize*lineDepthR) == 0 {
+					aligned = false
+					break
+				}
+			}
+			if aligned {
+				overlapTable[v0] = &t2
+				if t2.w > t2Width {
+					t2Width = t2.w
+				}
+				removed[i2] = true
+			}
+		}
+
+		if len(overlapTable) > 0 {
+			w := t1.w + t2Width
 			h := t1.h
-			combined := make(cellList, w*h)
-			for y := 0; y < h; y++ {
-				for x := 0; x < t1.w; x++ {
-					combined[y*w+x] = t1.cells[y*w+x]
-				}
-				for x := 0; x < t2.w; x++ {
-					xx := x + t1.w
-					combined[y*w+xx] = t1.cells[y*w+x]
-				}
+			combined := textTable{
+				w:     w,
+				h:     h,
+				cells: make(cellList, w*h),
 			}
-			removed[i2] = true
-			fontsize = t1.cells.fontsize()
-			c1 = t1.corners()
+			combined.insertAt(0, 0, &t1)
+			for y, t := range overlapTable {
+				combined.insertAt(t1.w-1, y, t)
+			}
+
+			fontsize = combined.cells.fontsize()
 		}
 	}
 	var reduced []textTable
@@ -413,35 +389,35 @@ func below(para2, para1 *textPara) bool {
 	return para2.Ury < para1.Lly
 }
 
-func (paras cellList) cellDepths() []float64 {
-	topF := func(p *textPara) float64 { return p.Ury }
-	botF := func(p *textPara) float64 { return p.Lly }
-	top := paras.calcCellDepths(topF)
-	bottom := paras.calcCellDepths(botF)
-	if len(bottom) < len(top) {
-		return bottom
-	}
-	return top
-}
+// func (paras cellList) cellDepths() []float64 {
+// 	topF := func(p *textPara) float64 { return p.Ury }
+// 	botF := func(p *textPara) float64 { return p.Lly }
+// 	top := paras.calcCellDepths(topF)
+// 	bottom := paras.calcCellDepths(botF)
+// 	if len(bottom) < len(top) {
+// 		return bottom
+// 	}
+// 	return top
+// }
 
-func (paras cellList) calcCellDepths(getY func(*textPara) float64) []float64 {
-	depths := []float64{getY(paras[0])}
-	delta := paras.fontsize() * maxIntraDepthGapR
-	for _, para := range paras {
-		newDepth := true
-		y := getY(para)
-		for _, d := range depths {
-			if math.Abs(d-getY(para)) < delta {
-				newDepth = false
-				break
-			}
-		}
-		if newDepth {
-			depths = append(depths, y)
-		}
-	}
-	return depths
-}
+// func (paras cellList) calcCellDepths(getY func(*textPara) float64) []float64 {
+// 	depths := []float64{getY(paras[0])}
+// 	delta := paras.fontsize() * maxIntraDepthGapR
+// 	for _, para := range paras {
+// 		newDepth := true
+// 		y := getY(para)
+// 		for _, d := range depths {
+// 			if math.Abs(d-getY(para)) < delta {
+// 				newDepth = false
+// 				break
+// 			}
+// 		}
+// 		if newDepth {
+// 			depths = append(depths, y)
+// 		}
+// 	}
+// 	return depths
+// }
 
 func (c *textTable) corners() paraList {
 	w, h := c.w, c.h
@@ -503,10 +479,28 @@ func (table textTable) newTablePara() *textPara {
 	return &para
 }
 
-func (cells cellList) alignedX(delta float64) int {
+// aligned2x2X return an X alignment score for the 2x2 table atom `cells`.
+func (cells cellList) aligned2x2X(delta float64) int {
+	if len(cells) != 4 {
+		panic(fmt.Errorf("cells=%d", len(cells)))
+	}
 	matches := 0
 	for _, get := range gettersX {
-		if cells.aligned(0, 2, delta, get) && cells.aligned(1, 3, delta, get) {
+		if cells.aligned(get, delta, 0, 2) && cells.aligned(get, delta, 1, 3) {
+			matches++
+		}
+	}
+	return matches
+}
+
+// aligned2x2Y return a Y alignment score for the 2x2 table atom `cells`.
+func (cells cellList) aligned2x2Y(delta float64) int {
+	if len(cells) != 4 {
+		panic(fmt.Errorf("cells=%d", len(cells)))
+	}
+	matches := 0
+	for _, get := range gettersY {
+		if cells.aligned(get, delta, 0, 1) && cells.aligned(get, delta, 2, 3) {
 			matches++
 		}
 	}
@@ -514,23 +508,35 @@ func (cells cellList) alignedX(delta float64) int {
 }
 
 func (cells cellList) alignedY(delta float64) int {
-	matches := 0
-	for _, get := range gettersY {
-		if cells.aligned(0, 1, delta, get) && cells.aligned(2, 3, delta, get) {
-			matches++
+	worstMatches := 100
+	for i := 1; i < len(cells); i++ {
+		matches := 0
+		for _, get := range gettersY {
+			if cells.aligned(get, delta, i-1, i) {
+				matches++
+			}
+		}
+		if matches < worstMatches {
+			worstMatches = matches
 		}
 	}
-	return matches
+	return worstMatches
 }
 
-func (cells cellList) aligned(i, j int, delta float64, get getter) bool {
-	return parasAligned(cells[i], cells[j], delta, get)
+// aligned returns true if `cells` are aligned on attribute `get` for indexes `i` and 'j`.
+func (cells cellList) aligned(get getter, delta float64, i, j int) bool {
+	if !(0 <= i && i < len(cells) && 0 <= j && j < len(cells)) {
+		panic(fmt.Errorf("i=%d j=%d cells=%d", i, j, len(cells)))
+	}
+	return parasAligned(get, delta, cells[i], cells[j])
 }
 
 type getter func(*textPara) float64
 
 var (
+	// gettersX get the x-center, left and right of cells.
 	gettersX = []getter{getXCe, getXLl, getXUr}
+	// gettersX get the y-center, bottom and top of cells.
 	gettersY = []getter{getYCe, getYLl, getYUr}
 )
 
@@ -541,7 +547,8 @@ func getYCe(para *textPara) float64 { return 0.5 * (para.Lly + para.Ury) }
 func getYLl(para *textPara) float64 { return para.Lly }
 func getYUr(para *textPara) float64 { return para.Ury }
 
-func parasAligned(para1, para2 *textPara, delta float64, get func(*textPara) float64) bool {
+// parasAligned returns true if `para1` and `para2` are aligned within `delta` for attribute `get`.
+func parasAligned(get getter, delta float64, para1, para2 *textPara) bool {
 	z1 := get(para1)
 	z2 := get(para2)
 	return math.Abs(z1-z2) <= delta
@@ -549,9 +556,151 @@ func parasAligned(para1, para2 *textPara, delta float64, get func(*textPara) flo
 
 // fontsize for a paraList is the minimum font size of the paras.
 func (paras cellList) fontsize() float64 {
-	size := paras[0].fontsize()
-	for _, p := range paras[1:] {
-		size = math.Min(size, p.fontsize())
+	size := -1.0
+	for _, p := range paras {
+		if p != nil {
+			if size < 0 {
+				size = p.fontsize()
+			} else {
+				size = math.Min(size, p.fontsize())
+			}
+		}
 	}
 	return size
+}
+
+// insertAt inserts `table` in `t` at `x`, `y`.
+func (t *textTable) insertAt(x, y int, table *textTable) {
+	if !(0 <= x && x < t.w) {
+		panic(fmt.Errorf("x=%d is an invalid insertion for %s", x, t))
+	}
+	if !(0 <= y && y < t.h) {
+		panic(fmt.Errorf("y=%d is an invalid insertion for %s", y, t))
+	}
+	w := minInt(table.w, x-t.w)
+	h := minInt(table.h, x-t.h)
+	if w < 1 || h < 1 {
+		return
+	}
+	x0, y0 := x, y
+	for y := 0; y < h; y++ {
+		yy := y0 + y
+		for x := 0; x < w; x++ {
+			xx := x0 + x
+			t.cells[yy*t.w+xx] = table.cells[y*table.w+x]
+		}
+	}
+}
+
+// row returns the (0-offset) `y`th row in `t`.
+func (t textTable) row(y int) cellList {
+	if !(0 <= y && y < t.h) {
+		panic(fmt.Errorf("y=%d is an invalid row for %s", y, t))
+	}
+	cells := make(cellList, t.w)
+	for x := 0; x < t.w; x++ {
+		cells[x] = t.cells[y*t.w+x]
+	}
+	return cells
+}
+
+// column returns the (0-offset) `x`th column in `t`.
+func (t textTable) column(x int) cellList {
+	if !(0 <= x && x < t.w) {
+		panic(fmt.Errorf("x=%d is an invalid column for %s", x, t))
+	}
+	cells := make(cellList, t.h)
+	for y := 0; y < t.h; y++ {
+		cells[y] = t.cells[y*t.w+x]
+	}
+	return cells
+}
+
+// cellSet returns `cells` as a set.
+func (cells cellList) cellSet() map[*textPara]bool {
+	set := map[*textPara]bool{}
+	for _, cell := range cells {
+		set[cell] = true
+	}
+	return set
+}
+
+// overlapRange returns i0, i1 where cells[i0,i1] is the maximum overlap with `other`.
+func (cells cellList) overlapRange(other cellList) (int, int) {
+	i0, i1 := -1, len(cells)
+	for i, c := range cells {
+		if i0 < 0 {
+			if c == other[0] {
+				i0 = i
+			}
+			continue
+		}
+		if i-i0 >= len(other) || c != other[i-i0] {
+			i1 = i
+			break
+		}
+	}
+	if i0 < 0 {
+		panic("no match")
+	}
+	return i0, i1
+}
+
+// toTextTable returns the TextTable corresponding to `t`.
+func (t textTable) toTextTable() TextTable {
+	var cells [][]string
+	for y := 0; y < t.h; y++ {
+		var row []string
+		for x := 0; x < t.w; x++ {
+			row = append(row, t.cells[y*t.w+x].text())
+		}
+		cells = append(cells, row)
+	}
+	return TextTable{
+		W:     t.w,
+		H:     t.h,
+		Cells: cells,
+	}
+}
+
+// logTables logs the contents of `tables`.
+func logTables(tables []textTable, title string) {
+	common.Log.Info("%8s: %d tables =======!!!!!!!!=====", title, len(tables))
+	for i, t := range tables {
+		t.log(fmt.Sprintf("%s-%02d", title, i))
+	}
+
+}
+
+// log logs the contents of `table`.
+func (table textTable) log(title string) {
+	common.Log.Info("%8s: %s: %2d x %2d %6.2f =======//////////=====\n"+
+		"      %6.2f", title, fileLine(1, false),
+		table.w, table.h, table.PdfRectangle, table.PdfRectangle)
+	for i, p := range table.cells {
+		fmt.Printf("%4d: %6.2f %q\n", i, p.PdfRectangle, truncate(p.text(), 50))
+	}
+}
+
+// log logs the contents of `paras`.
+func (paras paraList) log(title string) {
+	common.Log.Info("%8s: %d paras =======-------=======", title, len(paras))
+	for i, para := range paras {
+		text := para.text()
+		tabl := "  "
+		if para.table != nil {
+			tabl = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
+		}
+		fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tabl, truncate(text, 50))
+		if len(text) == 0 {
+			panic("empty")
+		}
+		if para.table != nil && len(para.table.cells) == 0 {
+			panic(para)
+		}
+	}
+}
+
+func (cells cellList) log(title string) {
+	paraList(cells).log(title)
 }

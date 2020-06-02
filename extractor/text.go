@@ -908,10 +908,11 @@ func isTextSpace(text string) bool {
 
 // PageText represents the layout of text on a device page.
 type PageText struct {
-	marks     []*textMark // Texts and their positions on a PDF page.
-	viewText  string      // Extracted page text.
-	viewMarks []TextMark  // Public view of `marks`.
-	pageSize  model.PdfRectangle
+	marks      []*textMark // Texts and their positions on a PDF page.
+	viewText   string      // Extracted page text.
+	viewMarks  []TextMark  // Public view of `marks`.
+	viewTables []TextTable
+	pageSize   model.PdfRectangle
 }
 
 // String returns a string describing `pt`.
@@ -942,6 +943,11 @@ func (pt PageText) Marks() *TextMarkArray {
 	return &TextMarkArray{marks: pt.viewMarks}
 }
 
+// Tables returns the tables extracted from the page.
+func (pt PageText) Tables() []TextTable {
+	return pt.viewTables
+}
+
 // computeViews processes the page TextMarks sorting by position and populates `pt.viewText` and
 // `pt.viewMarks` which represent the text and marks in the order which it is read on the page.
 // The comments above the TextMark definition describe how to use the []TextMark to
@@ -953,6 +959,7 @@ func (pt *PageText) computeViews() {
 	paras.writeText(b)
 	pt.viewText = b.String()
 	pt.viewMarks = paras.toTextMarks()
+	pt.viewTables = paras.toTables()
 }
 
 // TextMarkArray is a collection of TextMarks.
@@ -1117,6 +1124,13 @@ var spaceMark = TextMark{
 	Text:     "[X]",
 	Original: " ",
 	Meta:     true,
+}
+
+// TextTable represents a table.
+// Cells are ordered top-to-bottom, left-to-right.
+type TextTable struct {
+	W, H  int
+	Cells [][]string
 }
 
 // getCurrentFont returns the font on top of the font stack, or DefaultFont if the font stack is

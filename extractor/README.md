@@ -62,3 +62,19 @@ bruce.pdf for char spacing save/restore.
 
 challenging-modified.pdf
 transitions_test.pdf
+
+
+Code Restructure?
+-----------------
+
+	type textPara struct {
+		textCell
+		table *textTable
+	}
+
+	type textCell struct {
+		serial             int                // Sequence number for debugging.
+		model.PdfRectangle                    // Bounding box.
+		eBBox              model.PdfRectangle // Extented ounding box needed to compute reading order.
+		lines              []*textLine        // Paragraph text gets broken into lines.
+	}

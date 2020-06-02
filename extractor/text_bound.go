@@ -65,13 +65,14 @@ func diffReading(a, b bounded) float64 {
 	return a.bbox().Llx - b.bbox().Llx
 }
 
-// func boundedUnion(objs ...bounded) model.PdfRectangle {
-// 	rect := objs[0].bbox()
-// 	for _, r := range objs[1:] {
-// 		rect = rectUnion(rect, r.bbox())
-// 	}
-// 	return rect
-// }
+// boundedUnion returns the union of the bounds of `objs`.
+func boundedUnion(objs ...bounded) model.PdfRectangle {
+	rect := objs[0].bbox()
+	for _, r := range objs[1:] {
+		rect = rectUnion(rect, r.bbox())
+	}
+	return rect
+}
 
 // diffDepth returns `a` - `b` in the depth direction..
 func diffDepth(a, b bounded) float64 {
@@ -152,6 +153,7 @@ func overlappedYRect(r0, r1 model.PdfRectangle) bool {
 	return (r0.Lly <= r1.Lly && r1.Lly <= r0.Ury) || (r0.Lly <= r1.Ury && r1.Ury <= r0.Ury)
 }
 
+// minInt return the lesser of `a` and `b`.
 func minInt(a, b int) int {
 	if a < b {
 		return a
@@ -159,6 +161,7 @@ func minInt(a, b int) int {
 	return b
 }
 
+// maxInt return the greater of `a` and `b`.
 func maxInt(a, b int) int {
 	if a > b {
 		return a

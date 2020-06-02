@@ -68,7 +68,8 @@ Code Restructure?
 -----------------
 
 	type textPara struct {
-		textCell
+		w, h    int
+		cells []textCell
 		table *textTable
 	}
 

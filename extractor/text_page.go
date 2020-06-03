@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"unicode"
 
 	"github.com/unidoc/unipdf/v3/common"
@@ -35,17 +36,16 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	for i, para := range paraStratas {
 		paras[i] = composePara(para)
 	}
-	if verbose || true {
-		common.Log.Info("unsorted: %d paras =========----------=====", len(paras))
-		for i, para := range paras {
-			fmt.Printf("%4d: %6.2f %q\n", i, para.PdfRectangle, truncate(paras[i].text(), 60))
-		}
-	}
 
+	paras.log("unsorted")
 	paras.computeEBBoxes()
+	// paras.log("EBBoxes 1")
 	paras = paras.extractTables()
+	// paras.log("tables extracted")
+	paras.computeEBBoxes()
+	// paras.log("EBBoxes 2")
 
-	// Sort the paras into reading order.
+	// Sort the paras into reading order.\
 	paras.sortReadingOrder()
 	if verbose || true {
 		// common.Log.Info("para sorted in reading order -----------=========")
@@ -278,6 +278,8 @@ func (paras paraList) sortReadingOrder() {
 	if len(paras) <= 1 {
 		return
 	}
+	sort.Slice(paras, func(i, j int) bool { return diffDepthReading(paras[i], paras[j]) <= 0 })
+	paras.log("diffReadingDepth")
 	adj := paras.adjMatrix()
 	order := topoOrder(adj)
 	paras.reorder(order)
@@ -299,7 +301,7 @@ func (paras paraList) adjMatrix() [][]bool {
 			adj[i][j], reasons[i][j] = paras.before(i, j)
 		}
 	}
-	if verbose && false {
+	if verbose {
 		common.Log.Info("adjMatrix =======")
 		for i := 0; i < n; i++ {
 			a := paras[i]
@@ -314,7 +316,6 @@ func (paras paraList) adjMatrix() [][]bool {
 				b := paras[j]
 				fmt.Printf("%8d: %10s %q %.2f\n", j,
 					reasons[i][j], truncate(b.text(), 40), b.PdfRectangle)
-
 			}
 		}
 	}

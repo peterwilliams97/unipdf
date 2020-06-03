@@ -29,7 +29,15 @@ func (t *textTable) String() string {
 }
 
 func (t *textTable) bbox() model.PdfRectangle {
-	return t.PdfRectangle
+	rect := model.PdfRectangle{Urx: -1, Ury: -1}
+	for _, cell := range t.cells {
+		if rect.Urx < rect.Llx {
+			rect = cell.PdfRectangle
+		} else {
+			rect = rectUnion(rect, cell.PdfRectangle)
+		}
+	}
+	return rect
 }
 
 func (t *textTable) get(x, y int) *textPara {
@@ -127,9 +135,8 @@ const DBL_MIN, DBL_MAX = -1.0e10, +1.0e10
 func (paras paraList) extractTables() paraList {
 	common.Log.Debug("extractTables=%d ===========x=============", len(paras))
 	if len(paras) < 4 {
-		return nil
+		return paras
 	}
-	showParas := paras.log
 
 	cells := cellList(paras)
 	tables := cells.findTables()
@@ -142,9 +149,9 @@ func (paras paraList) extractTables() paraList {
 	// // if len(tables) == 0 {panic("NO TABLES")}
 	// showParas("tables extracted")
 	paras = paras.applyTables(tables)
-	showParas("tables applied")
+	paras.log("tables applied")
 	paras = paras.trimTables()
-	showParas("tables trimmed")
+	paras.log("tables trimmed")
 
 	return paras
 }
@@ -153,22 +160,28 @@ func (paras paraList) trimTables() paraList {
 	var recycledParas paraList
 	seen := map[*textPara]bool{}
 	for _, para := range paras {
+		table := para.table
+		if table == nil {
+			continue
+		}
 		for _, p := range paras {
 			if p == para {
 				continue
 			}
-			table := para.table
-			if table != nil && overlapped(table, p) {
-				table.log("REMOVE")
-				for _, cell := range table.cells {
-					if _, ok := seen[cell]; ok {
-						continue
-					}
-					recycledParas = append(recycledParas, cell)
-					seen[cell] = true
-				}
-				para.table.cells = nil
+			if !overlapped(table, p) {
+				continue
 			}
+			common.Log.Info("overlap REMOVE:\n\ttable=%s\n\t p=%s", table.String(), p.String())
+			table.log("REMOVE")
+			for _, cell := range table.cells {
+				if _, ok := seen[cell]; ok {
+					continue
+				}
+				recycledParas = append(recycledParas, cell)
+				seen[cell] = true
+			}
+			para.table.cells = nil
+
 		}
 	}
 
@@ -206,6 +219,7 @@ func (paras paraList) applyTables(tables []*textTable) paraList {
 			tabled = append(tabled, para)
 		}
 	}
+	common.Log.Info("applyTables: %d->%d tables=%d", len(paras), len(tabled), len(tables))
 	return tabled
 }
 
@@ -555,10 +569,11 @@ func (table *textTable) newTablePara() *textPara {
 	// }
 	// sort.Slice(cells, func(i, j int) bool { return diffDepthReading(cells[i], cells[j]) < 0 })
 	// table.cells = cells
+	bbox := table.bbox()
 	para := textPara{
 		serial:       serial.para,
-		PdfRectangle: table.PdfRectangle,
-		eBBox:        table.PdfRectangle,
+		PdfRectangle: bbox,
+		eBBox:        bbox,
 		table:        table,
 	}
 	table.log(fmt.Sprintf("newTablePara: serial=%d", para.serial))
@@ -661,6 +676,28 @@ func (t *textTable) insertAt(x, y int, table *textTable) {
 		t.cells[idx] = cell
 		t.PdfRectangle = rectUnion(t.PdfRectangle, cell.PdfRectangle)
 	}
+}
+
+// subTable returns the `w` x `h` subtable of `t` at 0,0.
+func (t *textTable) subTable(w, h int) *textTable {
+	if !(1 <= w && w <= t.w) {
+		panic(fmt.Errorf("w=%d is an invalid sub-width for %s", w, t))
+	}
+	if !(1 <= h && h <= t.h) {
+		panic(fmt.Errorf("h=%d is an invalid sub-height for %s", h, t))
+	}
+	table := newTextTable(w, h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			cell := t.get(x, y)
+			if cell == nil {
+				continue
+			}
+			table.put(x, y, cell)
+			table.PdfRectangle = rectUnion(table.PdfRectangle, cell.PdfRectangle)
+		}
+	}
+	return table
 }
 
 // row returns the (0-offset) `y`th row in `t`.
@@ -814,6 +851,7 @@ func removeDuplicateTables(tables []*textTable) []*textTable {
 		return ti.Ury > tj.Ury
 	})
 	distinct := []*textTable{tables[0]}
+	tables[0].log("removeDuplicateTables 0")
 outer:
 	for _, t := range tables[1:] {
 		for _, d := range distinct {
@@ -821,6 +859,7 @@ outer:
 				continue outer
 			}
 		}
+		t.log("removeDuplicateTables x")
 		distinct = append(distinct, t)
 	}
 	return distinct
@@ -854,6 +893,7 @@ func makeCandidate(col, row cellList) (cellList, cellList) {
 	}
 	return col2, row2
 }
+
 func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
 	common.Log.Info("findTableCandidates: cols=%d rows=%d\n\tcols=%s\n\trows=%s",
 		len(cols), len(rows), cols[0].String(), rows[0].String())
@@ -880,17 +920,18 @@ func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
 		return i < j
 	})
 	var tables []*textTable
-	for _, cand := range candidates {
+	for i, cand := range candidates {
+		col, row := cand[0], cand[1]
 
-		col := cand[0]
-		row := cand[1]
-
-		// fmt.Printf("%8d: findTableCandidates: col=%2d %6.2f row=%2d %6.2f\n\tcol=%s\n\trow=%s\n",
-		// 	i, len(col), col.bbox(), len(row), row.bbox(), col.asStrings(), row.asStrings())
+		fmt.Printf("%8d: findTableCandidates: col=%2d %6.2f row=%2d %6.2f\n\tcol=%s\n\trow=%s\n",
+			i, len(col), col.bbox(), len(row), row.bbox(), col.asStrings(), row.asStrings())
 
 		if col.equals(row) {
-			panic(fmt.Errorf("columns can't be row\n\tcol=%6.2f %q\n\trow=%6.2f %q",
-				col.bbox(), col.asStrings(), row.bbox(), row.asStrings()))
+			// panic(fmt.Errorf("columns can't be row\n\tcol=%6.2f %q\n\trow=%6.2f %q",
+			// 	col.bbox(), col.asStrings(), row.bbox(), row.asStrings()))
+			common.Log.Error("columns can't be row\n\tcol=%6.2f %q\n\trow=%6.2f %q",
+				col.bbox(), col.asStrings(), row.bbox(), row.asStrings())
+			continue
 		}
 		if len(col) == 0 || len(row) == 0 {
 			panic("emmmpty")
@@ -902,6 +943,7 @@ func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
 		// fmt.Printf("%12s boundary=%6.2f subset=%3d=%6.2f valid=%t\n", "",
 		// 	boundary, len(subset), subset.bbox(), table != nil)
 		if table != nil {
+			table.log("VALID!!")
 			tables = append(tables, table)
 		}
 	}
@@ -923,23 +965,15 @@ func (cells cellList) within(boundary model.PdfRectangle) cellList {
 // on its left and `row` on its top.
 // nil is returned if there is no valid table
 func (cells cellList) validTable(col, row cellList) *textTable {
-	// if !col.equals(cells.column(0)) {
-	// 	return false
-	// }
-	// if !row.equals(cells.row(0)) {
-	// 	return false
-	// }
 	w, h := len(row), len(col)
-
 	if col.equals(row) {
 		panic("columns can't be rows")
 	}
-
 	if col[0] != row[0] {
 		panic("bad intersection")
 	}
 
-	// common.Log.Info("validTable: w=%d h=%d cells=%d", w, h, len(cells))
+	common.Log.Info("validTable: w=%d h=%d cells=%d", w, h, len(cells))
 
 	table := newTextTable(w, h)
 	for x, cell := range row {
@@ -949,38 +983,89 @@ func (cells cellList) validTable(col, row cellList) *textTable {
 		table.put(0, y, cell)
 	}
 	fontsize := table.fontsize()
-	for _, cell := range cells {
+	for i, cell := range cells {
 		y := col.getAlignedIndex(getYUr, fontsize*lineDepthR, cell)
 		x := row.getAlignedIndex(getXLl, fontsize*maxIntraReadingGapR, cell)
 		if x < 0 || y < 0 {
 			common.Log.Error("bad element: x=%d y=%d cell=%s", x, y, cell.String())
 			return nil
 		}
+		fmt.Printf("%4d: y=%d x=%d %q\n", i, y, x, truncate(cell.text(), 50))
 		table.put(x, y, cell)
 		fontsize = table.fontsize()
 	}
+
+	// if !table.isDense(table.w, table.h) {
+	// 	return nil
+	// }
+	w, h = table.maxDense()
+	common.Log.Info("maxDense: w=%d h=%d", w, h)
+	if w < 0 {
+		return nil
+	}
+	return table.subTable(w, h)
+}
+
+func (t *textTable) maxDense() (int, int) {
+	var product [][2]int
+	for h := 2; h <= t.h; h++ {
+		for w := 2; w <= t.w; w++ {
+			product = append(product, [2]int{w, h})
+		}
+	}
+	if len(product) == 0 {
+		return -1, -1
+	}
+	sort.Slice(product, func(i, j int) bool {
+		pi, pj := product[i], product[j]
+		ai := pi[0] * pi[1]
+		aj := pj[0] * pj[1]
+		if ai != aj {
+			return ai > aj
+		}
+		if pi[1] != pj[1] {
+			return pi[1] > pj[1]
+		}
+		return i < j
+	})
+	for i, p := range product {
+		w, h := p[0], p[1]
+		dense, reason := t.isDense(w, h)
+		fmt.Printf("%d: isDense w=%d h=%d dense=%5t %s\n", i, w, h, dense, reason)
+		if dense {
+			return w, h
+		}
+	}
+	return -1, -1
+}
+
+func (t *textTable) isDense(w, h int) (bool, string) {
 	minOccRow := 2
 	minOccCol := 2
 	minOccR := 0.3
+
 	count := 0
-	for x := 0; x < table.w; x++ {
-		n := table.column(x).count()
+	for x := 0; x < w; x++ {
+		n := t.column(x).count()
 		if n < minOccCol {
-			return nil
+			// common.Log.Error("col %d has %d entries", x, n, t.column(x).asStrings())
+			return false, fmt.Sprintf("col %d has %d entries %s", x, n, t.column(x).asStrings())
 		}
 		count += n
 	}
-	for y := 0; y < table.h; y++ {
-		n := table.row(y).count()
+	for y := 0; y < h; y++ {
+		n := t.row(y).count()
 		if n < minOccRow {
-			return nil
+			// common.Log.Error("row %d has %d entries %s", y, n, t.row(y).asStrings())
+			return false, fmt.Sprintf("row %d has %d entries %s", y, n, t.row(y).asStrings())
 		}
 	}
-	if float64(count) < float64(table.w*table.h)*minOccR {
-		return nil
+	occupancy := float64(count) / float64(w*h)
+	if occupancy < minOccR {
+		// common.Log.Error("table has %d of %d = %.2f entries", count, t.w*t.h, occupancy)
+		return false, fmt.Sprintf("table has %d of %d = %.2f entries", count, w*h, occupancy)
 	}
-
-	return table
+	return true, ""
 }
 
 func (cells cellList) count() int {
@@ -992,6 +1077,7 @@ func (cells cellList) count() int {
 	}
 	return n
 }
+
 func (cells cellList) getAlignedIndex(get getter, delta float64, targetCell *textPara) int {
 	for i, cell := range cells {
 		if parasAligned(get, delta, targetCell, cell) {

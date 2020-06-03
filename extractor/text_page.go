@@ -48,14 +48,15 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	// Sort the paras into reading order.
 	paras.sortReadingOrder()
 	if verbose || true {
-		common.Log.Info("para sorted in reading order -----------=========")
-		for i, para := range paras {
-			tab := ""
-			if para.table != nil {
-				tab = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
-			}
-			fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tab, truncate(para.text(), 50))
-		}
+		// common.Log.Info("para sorted in reading order -----------=========")
+		paras.log("sorted in reading order")
+		// for i, para := range paras {
+		// 	tab := ""
+		// 	if para.table != nil {
+		// 		tab = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
+		// 	}
+		// 	fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tab, truncate(para.text(), 50))
+		// }
 	}
 	return paras
 }
@@ -165,9 +166,6 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 
 	return paraStratas
 }
-
-const doHyphens = true
-const useTables = true
 
 // writeText writes the text in `paras` to `w`.
 func (paras paraList) writeText(w io.Writer) {
@@ -411,6 +409,11 @@ func (paras paraList) computeEBBoxes() {
 			if b.Urx <= urx {
 				a.eBBox.Urx = math.Max(a.eBBox.Urx, b.Urx)
 			}
+		}
+	}
+	if useEBBox {
+		for _, para := range paras {
+			para.PdfRectangle = para.eBBox
 		}
 	}
 }

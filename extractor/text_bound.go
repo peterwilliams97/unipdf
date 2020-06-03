@@ -65,7 +65,6 @@ func diffReading(a, b bounded) float64 {
 	return a.bbox().Llx - b.bbox().Llx
 }
 
-// boundedUnion returns the union of the bounds of `objs`.
 func boundedUnion(objs ...bounded) model.PdfRectangle {
 	rect := objs[0].bbox()
 	for _, r := range objs[1:] {
@@ -74,7 +73,17 @@ func boundedUnion(objs ...bounded) model.PdfRectangle {
 	return rect
 }
 
-// diffDepth returns `a` - `b` in the depth direction..
+// rectContainsBounded returns true if `a` contains `b`.
+func rectContainsBounded(a model.PdfRectangle, b bounded) bool {
+	return rectContainsRect(a, b.bbox())
+}
+
+// rectContainsRect returns true if `a` contains `b`.
+func rectContainsRect(a, b model.PdfRectangle) bool {
+	return a.Llx <= b.Llx && b.Urx <= a.Urx && a.Lly <= b.Lly && b.Ury <= a.Ury
+}
+
+// diffDepth returns `a` - `b` in the depth direction.
 func diffDepth(a, b bounded) float64 {
 	return bboxDepth(a) - bboxDepth(b)
 }

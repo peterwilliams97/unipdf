@@ -22,7 +22,7 @@ import (
 type textPara struct {
 	serial             int                // Sequence number for debugging.
 	model.PdfRectangle                    // Bounding box.
-	eBBox              model.PdfRectangle // Extented ounding box needed to compute reading order.
+	eBBox              model.PdfRectangle // Extended bounding box needed to compute reading order.
 	lines              []*textLine        // Paragraph text gets broken into lines.
 	table              *textTable
 }
@@ -39,8 +39,8 @@ func newTextPara(strata *textStrata) *textPara {
 
 // String returns a description of `p`.
 func (p *textPara) String() string {
-	return fmt.Sprintf("serial=%d %.2f %d lines\n%s\n-------------",
-		p.serial, p.PdfRectangle, len(p.lines), p.text())
+	return fmt.Sprintf("serial=%d %.2f %d lines %q",
+		p.serial, p.PdfRectangle, len(p.lines), truncate(p.text(), 50))
 }
 
 // text returns the text  of the lines in `p`.
@@ -55,8 +55,12 @@ func (p *textPara) writeText(w io.Writer) {
 	if p.table != nil {
 		for y := 0; y < p.table.h; y++ {
 			for x := 0; x < p.table.w; x++ {
-				cell := p.table.cells[y*p.table.w+x]
-				cell.writeCellText(w)
+				cell := p.table.get(x, y)
+				if cell == nil {
+					w.Write([]byte("\t"))
+				} else {
+					cell.writeCellText(w)
+				}
 				w.Write([]byte(" "))
 			}
 			if y < p.table.h-1 {
@@ -116,9 +120,13 @@ func (p *textPara) toTextMarks(offset *int) []TextMark {
 	if p.table != nil {
 		for y := 0; y < p.table.h; y++ {
 			for x := 0; x < p.table.w; x++ {
-				cell := p.table.cells[y*p.table.w+x]
-				cellMarks := cell.toCellTextMarks(offset)
-				marks = append(marks, cellMarks...)
+				cell := p.table.get(x, y)
+				if cell == nil {
+					addSpaceMark("\t")
+				} else {
+					cellMarks := cell.toCellTextMarks(offset)
+					marks = append(marks, cellMarks...)
+				}
 				addSpaceMark(" ")
 			}
 			addSpaceMark("\n")

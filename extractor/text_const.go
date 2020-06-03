@@ -6,6 +6,12 @@
 package extractor
 
 const (
+	doHyphens = true
+	useTables = true
+	useEBBox  = false
+)
+
+const (
 
 	// Size of depth bins in points
 	depthBinPoints = 6

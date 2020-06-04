@@ -38,26 +38,17 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	}
 
 	paras.log("unsorted")
-	paras.computeEBBoxes()
-	// paras.log("EBBoxes 1")
+	// paras.computeEBBoxes()
+
 	paras = paras.extractTables()
 	// paras.log("tables extracted")
-	paras.computeEBBoxes()
+	// paras.computeEBBoxes()
 	// paras.log("EBBoxes 2")
 
-	// Sort the paras into reading order.\
+	// Sort the paras into reading order.
 	paras.sortReadingOrder()
-	if verbose || true {
-		// common.Log.Info("para sorted in reading order -----------=========")
-		paras.log("sorted in reading order")
-		// for i, para := range paras {
-		// 	tab := ""
-		// 	if para.table != nil {
-		// 		tab = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
-		// 	}
-		// 	fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tab, truncate(para.text(), 50))
-		// }
-	}
+	paras.log("sorted in reading order")
+
 	return paras
 }
 
@@ -301,11 +292,11 @@ func (paras paraList) adjMatrix() [][]bool {
 			adj[i][j], reasons[i][j] = paras.before(i, j)
 		}
 	}
-	if verbose {
+	if verbose || true {
 		common.Log.Info("adjMatrix =======")
 		for i := 0; i < n; i++ {
 			a := paras[i]
-			fmt.Printf("%4d: %q %.2f\n", i, truncate(a.text(), 50), a.PdfRectangle)
+			fmt.Printf("%4d: %q %.2f %.2f\n", i, truncate(a.text(), 50), a.PdfRectangle, a.eBBox)
 			for j := 0; j < n; j++ {
 				if i == j {
 					continue
@@ -314,8 +305,8 @@ func (paras paraList) adjMatrix() [][]bool {
 					continue
 				}
 				b := paras[j]
-				fmt.Printf("%8d: %10s %q %.2f\n", j,
-					reasons[i][j], truncate(b.text(), 40), b.PdfRectangle)
+				fmt.Printf("%8d: %10s %q %.2f %.2f\n", j,
+					reasons[i][j], truncate(b.text(), 40), b.PdfRectangle, b.eBBox)
 			}
 		}
 	}
@@ -368,13 +359,19 @@ func overlappedXPara(r0, r1 *textPara) bool {
 
 // computeEBBoxes computes the eBBox fields in the elements of `paras`.
 func (paras paraList) computeEBBoxes() {
-	common.Log.Trace("computeEBBoxes:")
+	common.Log.Info("computeEBBoxes:")
 
-	for i, a := range paras {
-		// [llx, urx] is the reading direction interval for which no paras overlap `a`
+	for _, para := range paras {
+		para.eBBox = para.PdfRectangle
+	}
+
+	for i, aa := range paras {
+		a := aa.eBBox
+		// [llx, urx] is the reading direction interval for which no paras overlap `a`.
 		llx := -1.0e9
 		urx := +1.0e9
-		for j, b := range paras {
+		for j, bb := range paras {
+			b := bb.eBBox
 			if i == j || !(a.Lly <= b.Ury && b.Lly <= a.Ury) {
 				continue
 			}
@@ -395,22 +392,25 @@ func (paras paraList) computeEBBoxes() {
 
 		// Go through all paras below `a` within interval [llx, urx] in the reading direction and
 		// expand `a` as far as possible to left and right without overlapping any of them.
-		a.eBBox = a.PdfRectangle
-		for j, b := range paras {
+
+		for j, bb := range paras {
+			b := bb.eBBox
 			if i == j || b.Ury > a.Lly {
 				continue
 			}
 
 			// If `b` is completely to right of `llx`, extend `a` left to `b`.
 			if llx <= b.Llx {
-				a.eBBox.Llx = math.Min(a.eBBox.Llx, b.Llx)
+				a.Llx = math.Min(a.Llx, b.Llx)
 			}
 
 			// If `b` is completely to left of `urx`, extend `a` right to `b`.
 			if b.Urx <= urx {
-				a.eBBox.Urx = math.Max(a.eBBox.Urx, b.Urx)
+				a.Urx = math.Max(a.Urx, b.Urx)
 			}
 		}
+		fmt.Printf("%4d: %6.2f->%6.2f %q\n", i, aa.eBBox, a, truncate(aa.text(), 50))
+		aa.eBBox = a
 	}
 	if useEBBox {
 		for _, para := range paras {

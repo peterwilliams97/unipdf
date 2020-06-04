@@ -19,11 +19,11 @@ import (
 var serial serialState
 
 type serialState struct {
-	mark int
-	word int
-	bins int
-	line int
-	para int
+	mark   int
+	word   int
+	strata int
+	line   int
+	para   int
 }
 
 func (serial *serialState) reset() {

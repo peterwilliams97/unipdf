@@ -82,7 +82,7 @@ func (to *textObject) newTextMark(text string, trm transform.Matrix, end transfo
 	if !isTextSpace(tm.text) && tm.Width() == 0.0 {
 		common.Log.Debug("ERROR: Zero width text. tm=%s", tm.String())
 	}
-	if verbose {
+	if verboseGeom {
 		common.Log.Info("newTextMark: start=%.2f end=%.2f %s", start, end, tm.String())
 	}
 

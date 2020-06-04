@@ -12,6 +12,7 @@ import (
 	"sort"
 	"unicode"
 
+	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
 )
 
@@ -279,6 +280,16 @@ func composePara(strata *textStrata) *textPara {
 	})
 	if len(para.lines) == 0 {
 		panic(para)
+	}
+	common.Log.Info("!!! para=%s", para.String())
+	for i, line := range para.lines {
+		fmt.Printf("%4d: %s\n", i, line)
+		for j, word := range line.words {
+			fmt.Printf("%8d: %s\n", j, word)
+			for k, mark := range word.marks {
+				fmt.Printf("%12d: %s\n", k, mark)
+			}
+		}
 	}
 	return para
 }

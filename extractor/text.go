@@ -22,8 +22,6 @@ import (
 	"github.com/unidoc/unipdf/v3/model"
 )
 
-const verbose = false
-
 // maxFormStack is the maximum form stack recursion depth. It has to be low enough to avoid a stack
 // overflow and high enough to accomodate customers' PDFs
 const maxFormStack = 10
@@ -64,7 +62,7 @@ func (e *Extractor) ExtractPageText() (*PageText, int, int, error) {
 // This can be called on a page or a form XObject.
 func (e *Extractor) extractPageText(contents string, resources *model.PdfPageResources, level int) (
 	*PageText, int, int, error) {
-	common.Log.Trace("extractPageText: level=%d", level)
+	common.Log.Info("extractPageText: level=%d", level)
 	pageText := &PageText{pageSize: e.mediaBox}
 	state := newTextState(e.mediaBox)
 	var savedStates stateStack
@@ -97,7 +95,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 
 			operand := op.Operand
 
-			if verbose {
+			if verboseGeom {
 				common.Log.Info("&&& op=%s", op)
 			}
 
@@ -106,7 +104,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				savedStates.push(&state)
 				// common.Log.Info("Save state: stack=%d\n %s", len(savedStates), state.String())
 			case "Q":
-				if verbose {
+				if verboseGeom {
 					common.Log.Info("Restore state: %s", savedStates.String())
 				}
 				if !savedStates.empty() {
@@ -489,8 +487,8 @@ func (to *textObject) setCharSpacing(x float64) {
 		return
 	}
 	to.state.tc = x
-	if verbose {
-		common.Log.Info("setCharSpacing: %.2f state=%s", to.state.String())
+	if verboseGeom {
+		common.Log.Info("setCharSpacing: %.2f state=%s", x, to.state.String())
 	}
 }
 
@@ -783,7 +781,7 @@ func (to *textObject) renderText(data []byte) error {
 		tfs*th, 0,
 		0, tfs,
 		0, state.trise)
-	if verbose {
+	if verboseGeom {
 		common.Log.Info("renderText: %d codes=%+v runes=%q", len(charcodes), charcodes, runeSlices)
 	}
 
@@ -819,7 +817,7 @@ func (to *textObject) renderText(data []byte) error {
 		// t is the displacement of the text cursor when the character is rendered.
 		t0 := transform.Point{X: (c.X*tfs + w) * th}
 		t := transform.Point{X: (c.X*tfs + state.tc + w) * th}
-		if verbose {
+		if verboseGeom {
 			common.Log.Info("tfs=%.2f tc=%.2f tw=%.2f th=%.2f", tfs, state.tc, state.tw, th)
 			common.Log.Info("dx,dy=%.3f t0=%.2f t=%.2f", c, t0, t)
 		}
@@ -830,7 +828,7 @@ func (to *textObject) renderText(data []byte) error {
 		td := translationMatrix(t)
 		end := to.gs.CTM.Mult(to.tm).Mult(td0)
 
-		if verbose {
+		if verboseGeom {
 			common.Log.Info("end:\n\tCTM=%s\n\t tm=%s\n"+
 				"\t td=%s xlat=%s\n"+
 				"\ttd0=%s\n\t → %s xlat=%s",

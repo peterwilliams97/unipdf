@@ -6,9 +6,11 @@
 package extractor
 
 const (
-	doHyphens = true
-	useTables = true
-	useEBBox  = false
+	verbose     = true
+	verboseGeom = true
+	doHyphens   = true
+	useTables   = true
+	useEBBox    = false
 )
 
 const (

@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strings"
 	"unicode"
 
 	"github.com/unidoc/unipdf/v3/common"
@@ -42,8 +43,8 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 
 	paras = paras.extractTables()
 	// paras.log("tables extracted")
-	// paras.computeEBBoxes()
-	// paras.log("EBBoxes 2")
+	paras.computeEBBoxes()
+	paras.log("EBBoxes 2")
 
 	// Sort the paras into reading order.
 	paras.sortReadingOrder()
@@ -151,6 +152,9 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 
 			// Sort the words in `para`'s bins in the reading direction.
 			para.sort()
+			if verbose {
+				common.Log.Info("para=%s", para.String())
+			}
 			paraStratas = append(paraStratas, para)
 		}
 	}
@@ -273,6 +277,8 @@ func (paras paraList) sortReadingOrder() {
 	paras.log("diffReadingDepth")
 	adj := paras.adjMatrix()
 	order := topoOrder(adj)
+	// paras.nodePath(adj, 5, 6)
+	printAdj(adj)
 	paras.reorder(order)
 }
 
@@ -293,20 +299,24 @@ func (paras paraList) adjMatrix() [][]bool {
 		}
 	}
 	if verbose || true {
+		show := func(a *textPara) string {
+			// return fmt.Sprintf("%.2f %.2f %q",
+			// 	a.PdfRectangle, a.eBBox, truncate(a.text(), 70))
+			return fmt.Sprintf("%6.2f %q", a.eBBox, truncate(a.text(), 70))
+		}
 		common.Log.Info("adjMatrix =======")
 		for i := 0; i < n; i++ {
 			a := paras[i]
-			fmt.Printf("%4d: %q %.2f %.2f\n", i, truncate(a.text(), 50), a.PdfRectangle, a.eBBox)
+			fmt.Printf("%4d: %s\n", i, show(a))
 			for j := 0; j < n; j++ {
 				if i == j {
 					continue
 				}
-				if !adj[i][j] {
+				if !adj[i][j] && i != 16 {
 					continue
 				}
 				b := paras[j]
-				fmt.Printf("%8d: %10s %q %.2f %.2f\n", j,
-					reasons[i][j], truncate(b.text(), 40), b.PdfRectangle, b.eBBox)
+				fmt.Printf("%8d: %t %10s %s\n", j, adj[i][j], reasons[i][j], show(b))
 			}
 		}
 	}
@@ -345,7 +355,7 @@ func (paras paraList) before(i, j int) (bool, string) {
 			continue
 		}
 		if overlappedXPara(a, c) && overlappedXPara(c, b) {
-			return false, "Y intervening"
+			return false, fmt.Sprintf("Y intervening: %d: %s", k, c)
 		}
 	}
 	return true, "TO LEFT"
@@ -419,34 +429,114 @@ func (paras paraList) computeEBBoxes() {
 	}
 }
 
+func printAdj(adj [][]bool) {
+	common.Log.Info("printAdj:")
+	n := len(adj)
+	fmt.Printf("%3s:", "")
+	for x := 0; x < n; x++ {
+		fmt.Printf("%3d", x)
+	}
+	fmt.Println()
+	for y := 0; y < n; y++ {
+		fmt.Printf("%3d:", y)
+		for x := 0; x < n; x++ {
+			s := ""
+			if adj[y][x] {
+				s = "X"
+			}
+			fmt.Printf("%3s", s)
+		}
+		fmt.Println()
+	}
+}
+
+func (paras paraList) nodePath(adj [][]bool, idx0, idx1 int) ([]int, bool) {
+	common.Log.Info("nodePath:")
+	n := len(adj)
+	visited := make([]bool, n)
+
+	// sortNode recursively sorts below node `idx` in the adjacency matrix.
+	var sortNode func(idx int, nodes []int) ([]int, bool)
+	sortNode = func(idx int, nodes []int) ([]int, bool) {
+		visited[idx] = true
+		nodes = append(nodes, idx)
+		if idx == idx1 {
+			return nodes, true
+		}
+		for i := 0; i < n; i++ {
+			if adj[idx][i] && !visited[i] {
+				if nodes, found := sortNode(i, nodes); found {
+					return nodes, true
+				}
+			}
+		}
+		return nil, false
+	}
+	var nodes []int
+	nodes, found := sortNode(idx0, nodes)
+
+	if !found {
+		panic(fmt.Errorf("no path: idx0=%d idx1=%dx1", idx0, idx1))
+	}
+	common.Log.Notice("node path")
+	for i, node := range nodes {
+		fmt.Printf("%4d: %d %s\n", i, node, paras[node])
+	}
+	return nodes, found
+}
+
 // topoOrder returns the ordering of the topological sort of the nodes with adjacency matrix `adj`.
 func topoOrder(adj [][]bool) []int {
+	common.Log.Info("topoOrder:")
 	n := len(adj)
 	visited := make([]bool, n)
 	var order []int
 
 	// sortNode recursively sorts below node `idx` in the adjacency matrix.
-	var sortNode func(idx int)
-	sortNode = func(idx int) {
+	var sortNode func(idx, depth int)
+	sortNode = func(idx, depth int) {
 		visited[idx] = true
 		for i := 0; i < n; i++ {
 			if adj[idx][i] && !visited[i] {
-				sortNode(i)
+				sortNode(i, depth+1)
 			}
 		}
+		last := -1
+		if len(order) > 0 {
+			last = order[len(order)-1]
+		}
+		start := fmt.Sprintf("%sidx=%2d->%2d", depthStr(depth), idx, last)
 		order = append(order, idx) // Should prepend but it's cheaper to append and reverse later.
+		end := fmt.Sprintf("%v", reversed(order))
+		fmt.Printf("\t%-30s %60s\n", start, end)
 	}
 
 	for idx := 0; idx < n; idx++ {
 		if !visited[idx] {
-			sortNode(idx)
+			sortNode(idx, 0)
 		}
 	}
 	// Order is currently reversed so change it to forward order.
-	for i := 0; i < n/2; i++ {
-		order[i], order[n-1-i] = order[n-1-i], order[i]
+	// for i := 0; i < n/2; i++ {
+	// 	order[i], order[n-1-i] = order[n-1-i], order[i]
+	// }
+	return reversed(order)
+}
+
+func reversed(order []int) []int {
+	rev := make([]int, len(order))
+	for i, v := range order {
+		rev[len(order)-1-i] = v
 	}
-	return order
+	return rev
+}
+
+func depthStr(depth int) string {
+	parts := make([]string, depth)
+	for i := range parts {
+		parts[i] = " "
+	}
+	return strings.Join(parts, "")
 }
 
 // reorder reorders `para` to the order in `order`.

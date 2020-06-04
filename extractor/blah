@@ -1,0 +1,2 @@
+signal: interrupt
+FAIL	github.com/unidoc/unipdf/v3/extractor	0.780s

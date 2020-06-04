@@ -171,7 +171,7 @@ func (paras paraList) trimTables() paraList {
 			if !overlapped(table, p) {
 				continue
 			}
-			common.Log.Info("overlap REMOVE:\n\ttable=%s\n\t p=%s", table.String(), p.String())
+			// common.Log.Info("overlap REMOVE:\n\ttable=%s\n\t p=%s", table.String(), p.String())
 			table.log("REMOVE")
 			for _, cell := range table.cells {
 				if _, ok := seen[cell]; ok {
@@ -219,255 +219,11 @@ func (paras paraList) applyTables(tables []*textTable) paraList {
 			tabled = append(tabled, para)
 		}
 	}
-	common.Log.Info("applyTables: %d->%d tables=%d", len(paras), len(tabled), len(tables))
+	if verboseTable {
+		common.Log.Info("applyTables: %d->%d tables=%d", len(paras), len(tabled), len(tables))
+	}
 	return tabled
 }
-
-// // extractTableAtome returns all the 2x2 table candidates in `paras`.
-// func (paras paraList) extractTableAtoms() []textTable {
-// 	// Pre-sort by reading direction then depth
-// 	sort.Slice(paras, func(i, j int) bool {
-// 		return diffReadingDepth(paras[i], paras[j]) < 0
-// 	})
-
-// 	var llx0, lly0, llx1, lly1 float64
-// 	var tables []textTable
-
-// 	for i1, para1 := range paras {
-// 		llx0, lly0 = DBL_MAX, DBL_MIN
-// 		llx1, lly1 = DBL_MAX, DBL_MIN
-
-// 		// Build a table atom of 4 cells
-// 		//   0 1
-// 		//   2 3
-// 		// where
-// 		//   0 is `para1`
-// 		//   1 is on the right of 0 and overlaps with 0 in y axis
-// 		//   2 is under 0 and overlaps with 0 in x axis
-// 		//   3 is under 1 and on the right of 1 and closest to 0
-// 		cells := make(cellList, 4)
-// 		cells[0] = para1
-
-// 		for _, para2 := range paras {
-// 			if para1 == para2 {
-// 				continue
-// 			}
-// 			if yOverlap(para1, para2) && toRight(para2, para1) && para2.Llx < llx0 {
-// 				llx0 = para2.Llx
-// 				cells[1] = para2
-// 			} else if xOverlap(para1, para2) && below(para2, para1) && para2.Ury > lly0 {
-// 				lly0 = para2.Ury
-// 				cells[2] = para2
-// 			} else if toRight(para2, para1) && para2.Llx < llx1 && below(para2, para1) && para2.Ury > lly1 {
-// 				llx1 = para2.Llx
-// 				lly1 = para2.Ury
-// 				cells[3] = para2
-// 			}
-// 		}
-// 		// Do we have a table atom?
-// 		if !(cells[1] != nil && cells[2] != nil && cells[3] != nil) {
-// 			continue
-// 		}
-// 		// cells.log(fmt.Sprintf("table atom i1=%d", i1))
-
-// 		// 1 cannot overlap with 2 in x and y
-// 		// 3 cannot overlap with 2 in x and with 1 in y
-// 		// 3 has to overlap with 2 in y and with 1 in x
-// 		if (xOverlap(cells[2], cells[3]) || yOverlap(cells[1], cells[3]) ||
-// 			xOverlap(cells[1], cells[2]) || yOverlap(cells[1], cells[2])) ||
-// 			!(xOverlap(cells[1], cells[3]) && yOverlap(cells[2], cells[3])) {
-// 			continue
-// 		}
-// 		// common.Log.Info("OVERLAP A) i1=%d", i1)
-
-// 		scoreX := cells.aligned2x2X(cells.fontsize() * maxIntraReadingGapR)
-// 		scoreY := cells.aligned2x2Y(cells.fontsize() * lineDepthR)
-// 		common.Log.Info("OVERLAP C) i1=%d scoreX=%d scoreY=%d", i1, scoreX, scoreY)
-
-// 		// are blocks aligned in x and y ?
-// 		if scoreX > 0 && scoreY > 0 {
-// 			table := newTable(cells, 2, 2)
-// 			tables = append(tables, table)
-// 			table.log("New textTable")
-// 		}
-// 	}
-// 	return tables
-// }
-
-// 0 1
-// 2 3
-// A B
-// C
-// Extensions:
-//   A[1] == B[0] right
-//   A[2] == C[0] down
-// func __combineTables(tables []*textTable) []*textTable {
-// 	tablesY := combineTablesY(tables)
-// 	tablesX := combineTablesX(tablesY)
-// 	return tablesX
-// }
-
-// func combineTablesY(tables []*textTable) []*textTable {
-// 	sort.Slice(tables, func(i, j int) bool { return tables[i].Ury > tables[j].Ury })
-// 	removed := map[int]bool{}
-
-// 	var combinedTables []*textTable
-// 	common.Log.Info("combineTablesY ------------------\n\t ------------------")
-// 	for i1, t1 := range tables {
-// 		if _, ok := removed[i1]; ok {
-// 			continue
-// 		}
-// 		fontsize := t1.fontsize()
-// 		c1 := t1.corners()
-// 		var combo *textTable
-// 		for i2, t2 := range tables {
-// 			if _, ok := removed[i2]; ok {
-// 				continue
-// 			}
-// 			if t1.w != t2.w {
-// 				continue
-// 			}
-// 			c2 := t2.corners()
-// 			if c1[2] != c2[0] {
-// 				continue
-// 			}
-// 			// common.Log.Info("Comparing i1=%d i2=%d", i1, i2)
-// 			// t1.log("t1")
-// 			// t2.log("t2")
-// 			cells := cellList{
-// 				c1[0], c1[1],
-// 				c2[2], c2[3],
-// 			}
-// 			alX := cells.aligned2x2X(fontsize * maxIntraReadingGapR)
-// 			alY := cells.aligned2x2Y(fontsize * lineDepthR)
-// 			common.Log.Info("alX=%d alY=%d", alX, alY)
-// 			if !(alX > 0 && alY > 0) {
-// 				if combo != nil {
-// 					common.Log.Info("BREAK: i1=%d i2=%d", i1, i2)
-// 					t1.log("t1")
-// 					t2.log("t2")
-// 					combinedTables = append(combinedTables, combo)
-// 				}
-// 				combo = nil
-// 				continue
-// 			}
-// 			if combo == nil {
-// 				combo = t1
-// 				removed[i1] = true
-// 			}
-
-// 			w, h := combo.w, combo.h
-// 			combo.expand(combo.w, h-1+t2.h)
-// 			combo.insertAt(0, h-1, t2)
-// 			common.Log.Info("COMBINE! %dx%d i1=%d i2=%d", w, h, i1, i2)
-
-// 			combo.PdfRectangle = rectUnion(combo.PdfRectangle, t2.PdfRectangle)
-// 			combo.log("combo")
-// 			removed[i2] = true
-// 			fontsize = combo.fontsize()
-// 			c1 = combo.corners()
-// 		}
-// 		if combo != nil {
-// 			combinedTables = append(combinedTables, combo)
-// 		}
-// 	}
-
-// 	common.Log.Info("combineTablesY a: combinedTables=%d", len(combinedTables))
-// 	for i, t := range tables {
-// 		if _, ok := removed[i]; ok {
-// 			continue
-// 		}
-// 		combinedTables = append(combinedTables, t)
-// 	}
-// 	common.Log.Info("combineTablesY b: combinedTables=%d", len(combinedTables))
-
-// 	return combinedTables
-// }
-
-// func combineTablesX(tables []*textTable) []*textTable {
-// 	sort.Slice(tables, func(i, j int) bool {
-// 		ti, tj := tables[i], tables[j]
-// 		if ti.h != tj.h {
-// 			return ti.h > tj.h
-// 		}
-// 		return ti.Llx < tj.Llx
-// 	})
-// 	removed := map[int]bool{}
-// 	for i1, t1 := range tables {
-// 		if _, ok := removed[i1]; ok {
-// 			continue
-// 		}
-// 		fontsize := t1.fontsize()
-
-// 		t1right := t1.column(t1.w - 1)
-// 		t1Map := t1right.cellSet()
-// 		overlapTable := map[int]*textTable{}
-// 		t2Width := 0
-// 		for i2, t2 := range tables {
-// 			if _, ok := removed[i2]; ok {
-// 				continue
-// 			}
-// 			if i2 <= i1 {
-// 				continue
-// 			}
-// 			// t1 is taller than t2
-// 			t2TL := t2.cells[0]
-// 			if _, ok := t1Map[t2TL]; !ok {
-// 				continue
-// 			}
-// 			t2left := t2.column(0)
-// 			if t2TL != t2left[0] {
-// 				panic("t's don't agree")
-// 			}
-// 			v0, v1 := t1right.overlapRange(t2left)
-// 			if v0 < 0 {
-// 				continue
-// 			}
-// 			common.Log.Info("v0=%d v1=%d t1right=%d t2left=%d", v0, v1, len(t1right), len(t2left))
-// 			aligned := true
-// 			for k := 0; k < v1-v0; k++ {
-// 				t1c := t1right[v0+k]
-// 				t2c := t2left[k]
-// 				cells := cellList{t1c, t2c}
-// 				if cells.alignedY(fontsize*lineDepthR) == 0 {
-// 					aligned = false
-// 					break
-// 				}
-// 			}
-// 			if aligned {
-// 				overlapTable[v0] = t2
-// 				if t2.w > t2Width {
-// 					t2Width = t2.w
-// 				}
-// 				removed[i2] = true
-// 			}
-// 		}
-
-// 		if len(overlapTable) > 0 {
-// 			w := t1.w + t2Width
-// 			h := t1.h
-// 			combined := textTable{
-// 				w:     w,
-// 				h:     h,
-// 				cells: make(cellList, w*h),
-// 			}
-// 			combined.insertAt(0, 0,&t1)
-// 			for y, t := range overlapTable {
-// 				combined.insertAt(t1.w-1, y, t)
-// 			}
-
-// 			fontsize = combined.cells.fontsize()
-// 		}
-// 	}
-// 	var reduced []*textTable
-// 	for i, t := range tables {
-// 		if _, ok := removed[i]; ok {
-// 			continue
-// 		}
-// 		reduced = append(reduced, t)
-// 	}
-// 	return reduced
-// }
 
 func yOverlap(para1, para2 *textPara) bool {
 	//  blk2->yMin <= blk1->yMax &&blk2->yMax >= blk1->yMin
@@ -805,35 +561,24 @@ func (t textTable) toTextTable() TextTable {
 // 4. Test each candidate O(N^4)
 
 func (cells cellList) findTables() []*textTable {
-	common.Log.Info("findTables @@1: cells=%d", len(cells))
+	if verboseTable {
+		common.Log.Info("findTables @@1: cells=%d", len(cells))
+	}
+
 	cols := cells.findGetterCandidates(getXLl, maxIntraReadingGapR, false)
-	sortContents(getYUr, true, cols)
-	common.Log.Info("findTables @@2: cols=%d", len(cols))
 	rows := cells.findGetterCandidates(getYUr, lineDepthR, true)
+	sortContents(getYUr, true, cols)
 	sortContents(getXLl, false, rows)
-	common.Log.Info("findTables @@3: rows=%d", len(rows))
+	if verboseTable {
+		common.Log.Info("findTables @@2: cols=%d rows=%d", len(cols), len(rows))
+	}
 	if len(cols) == 0 || len(rows) == 0 {
 		return nil
 	}
-	common.Log.Info("cols %d =================", len(cols))
-	// for i, v := range cols[:10] {
-	// 	fmt.Printf("%4d: %d %6.2f %q\n", i, len(v), v.bbox(), v.asStrings())
-	// 	if i > 3 {
-	// 		continue
-	// 	}
-	// 	for j, c := range v[:3] {
-	// 		fmt.Printf("%8d: %6.2f %q\n", j, c.bbox(), c.text())
-	// 	}
-	// }
-	common.Log.Info("rows %d =================", len(rows))
-	// for i, v := range rows[:10] {
-	// 	fmt.Printf("%4d: %d %6.2f %q\n", i, len(v), v.bbox(), v.asStrings())
-	// }
+
 	tables := cells.findTableCandidates(cols, rows)
-	common.Log.Info("findTables @@4: tables=%d", len(tables))
-	logTables(tables, "candidtates")
+	logTables(tables, "candidates")
 	tables = removeDuplicateTables((tables))
-	common.Log.Info("findTables @@5: tables=%d", len(tables))
 	logTables(tables, "distinct")
 	return tables
 }
@@ -865,38 +610,11 @@ outer:
 	return distinct
 }
 
-func makeCandidate(col, row cellList) (cellList, cellList) {
-	var col1, row1 cellList
-	for i, c := range col {
-		if c == row[0] {
-			col1 = col[i:]
-			row1 = row
-			break
-		}
-	}
-	var col2, row2 cellList
-	for i, c := range row {
-		if c == col[0] {
-			col2 = col
-			row2 = row[i:]
-			break
-		}
-	}
-	if col1 != nil && col2 != nil {
-		if len(col1)*len(row1) >= len(col2)*len(row2) {
-			return col1, row1
-		}
-		return col2, row2
-	}
-	if col1 != nil {
-		return col1, row1
-	}
-	return col2, row2
-}
-
 func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
-	common.Log.Info("findTableCandidates: cols=%d rows=%d\n\tcols=%s\n\trows=%s",
-		len(cols), len(rows), cols[0].String(), rows[0].String())
+	if verboseTable {
+		common.Log.Info("findTableCandidates: cols=%d rows=%d\n\tcols=%s\n\trows=%s",
+			len(cols), len(rows), cols[0].String(), rows[0].String())
+	}
 
 	var candidates [][2]cellList
 	for _, col := range cols {
@@ -922,9 +640,10 @@ func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
 	var tables []*textTable
 	for i, cand := range candidates {
 		col, row := cand[0], cand[1]
-
-		fmt.Printf("%8d: findTableCandidates: col=%2d %6.2f row=%2d %6.2f\n\tcol=%s\n\trow=%s\n",
-			i, len(col), col.bbox(), len(row), row.bbox(), col.asStrings(), row.asStrings())
+		if verboseTable {
+			fmt.Printf("%8d: findTableCandidates: col=%2d %6.2f row=%2d %6.2f\n\tcol=%s\n\trow=%s\n",
+				i, len(col), col.bbox(), len(row), row.bbox(), col.asStrings(), row.asStrings())
+		}
 
 		if col.equals(row) {
 			// panic(fmt.Errorf("columns can't be row\n\tcol=%6.2f %q\n\trow=%6.2f %q",
@@ -961,6 +680,35 @@ func (cells cellList) within(boundary model.PdfRectangle) cellList {
 	return subset
 }
 
+func makeCandidate(col, row cellList) (cellList, cellList) {
+	var col1, row1 cellList
+	for i, c := range col {
+		if c == row[0] {
+			col1 = col[i:]
+			row1 = row
+			break
+		}
+	}
+	var col2, row2 cellList
+	for i, c := range row {
+		if c == col[0] {
+			col2 = col
+			row2 = row[i:]
+			break
+		}
+	}
+	if col1 != nil && col2 != nil {
+		if len(col1)*len(row1) >= len(col2)*len(row2) {
+			return col1, row1
+		}
+		return col2, row2
+	}
+	if col1 != nil {
+		return col1, row1
+	}
+	return col2, row2
+}
+
 // validTable returns a sparse table containing `cells`if `cells` make up a valid table with `col`
 // on its left and `row` on its top.
 // nil is returned if there is no valid table
@@ -972,8 +720,9 @@ func (cells cellList) validTable(col, row cellList) *textTable {
 	if col[0] != row[0] {
 		panic("bad intersection")
 	}
-
-	common.Log.Info("validTable: w=%d h=%d cells=%d", w, h, len(cells))
+	if verboseTable {
+		common.Log.Info("validTable: w=%d h=%d cells=%d", w, h, len(cells))
+	}
 
 	table := newTextTable(w, h)
 	for x, cell := range row {
@@ -987,19 +736,22 @@ func (cells cellList) validTable(col, row cellList) *textTable {
 		y := col.getAlignedIndex(getYUr, fontsize*lineDepthR, cell)
 		x := row.getAlignedIndex(getXLl, fontsize*maxIntraReadingGapR, cell)
 		if x < 0 || y < 0 {
-			common.Log.Error("bad element: x=%d y=%d cell=%s", x, y, cell.String())
+			if verboseTable {
+				common.Log.Error("bad element: x=%d y=%d cell=%s", x, y, cell.String())
+			}
 			return nil
 		}
-		fmt.Printf("%4d: y=%d x=%d %q\n", i, y, x, truncate(cell.text(), 50))
+		if verboseTable {
+			fmt.Printf("%4d: y=%d x=%d %q\n", i, y, x, truncate(cell.text(), 50))
+		}
 		table.put(x, y, cell)
 		fontsize = table.fontsize()
 	}
 
-	// if !table.isDense(table.w, table.h) {
-	// 	return nil
-	// }
 	w, h = table.maxDense()
-	common.Log.Info("maxDense: w=%d h=%d", w, h)
+	if verboseTable {
+		common.Log.Info("maxDense: w=%d h=%d", w, h)
+	}
 	if w < 0 {
 		return nil
 	}
@@ -1031,7 +783,9 @@ func (t *textTable) maxDense() (int, int) {
 	for i, p := range product {
 		w, h := p[0], p[1]
 		dense, reason := t.isDense(w, h)
-		fmt.Printf("%d: isDense w=%d h=%d dense=%5t %s\n", i, w, h, dense, reason)
+		if verboseTable {
+			fmt.Printf("%d: isDense w=%d h=%d dense=%5t %s\n", i, w, h, dense, reason)
+		}
 		if dense {
 			return w, h
 		}
@@ -1192,6 +946,9 @@ func (cells cellList) log(title string) {
 
 // logTables logs the contents of `tables`.
 func logTables(tables []*textTable, title string) {
+	if !verboseTable {
+		return
+	}
 	common.Log.Info("%8s: %d tables =======!!!!!!!!=====", title, len(tables))
 	for i, t := range tables {
 		t.log(fmt.Sprintf("%s-%02d", title, i))
@@ -1200,6 +957,9 @@ func logTables(tables []*textTable, title string) {
 
 // log logs the contents of `table`.
 func (t *textTable) log(title string) {
+	if !verboseTable {
+		return
+	}
 	fmt.Printf("%4s[%dx%d] %s ++++++++++\n", "", t.w, t.h, title)
 	if t.w == 0 || t.h == 0 {
 		return
@@ -1229,27 +989,4 @@ func (cells cellList) asStrings() []string {
 		}
 	}
 	return parts
-
-}
-
-// log logs the contents of `paras`.
-func (paras paraList) log(title string) {
-	common.Log.Info("%8s: %d paras =======-------=======", title, len(paras))
-	for i, para := range paras {
-		if para == nil {
-			continue
-		}
-		text := para.text()
-		tabl := "  "
-		if para.table != nil {
-			tabl = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
-		}
-		fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tabl, truncate(text, 50))
-		if len(text) == 0 {
-			panic("empty")
-		}
-		if para.table != nil && len(para.table.cells) == 0 {
-			panic(para)
-		}
-	}
 }

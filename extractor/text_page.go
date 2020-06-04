@@ -10,16 +10,10 @@ import (
 	"io"
 	"math"
 	"sort"
-	"strings"
-	"unicode"
 
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
 )
-
-// paraList is a sequence of textPara. We use it so often that it is convenient to have its own
-// type so we can have methods on it.
-type paraList []*textPara
 
 // makeTextPage builds a paraList from `marks`, the textMarks on a page.
 func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraList {
@@ -65,7 +59,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 	// Some bins are emptied before they iterated to (seee "surving bin" above).
 	// If a `page` survives until it is iterated to then at least one `para` will be built around it.
 
-	if verbose {
+	if verbosePage {
 		common.Log.Info("dividePage")
 	}
 	cnt := 0
@@ -82,7 +76,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 			firstReadingIdx := page.firstReadingIndex(depthIdx)
 			words := page.getStratum(firstReadingIdx)
 			moveWord(firstReadingIdx, page, para, words[0])
-			if verbose {
+			if verbosePage {
 				common.Log.Info("words[0]=%s", words[0].String())
 			}
 
@@ -98,7 +92,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 
 				// Add words that are within maxIntraDepthGap of `para` in the depth direction.
 				// i.e. Stretch para in the depth direction, vertically for English text.
-				if verbose {
+				if verbosePage {
 					common.Log.Info("para depth %.2f - %.2f maxIntraDepthGap=%.2f ",
 						para.minDepth(), para.maxDepth(), maxIntraDepthGap)
 				}
@@ -152,7 +146,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 
 			// Sort the words in `para`'s bins in the reading direction.
 			para.sort()
-			if verbose {
+			if verbosePage {
 				common.Log.Info("para=%s", para.String())
 			}
 			paraStratas = append(paraStratas, para)
@@ -164,36 +158,9 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 
 // writeText writes the text in `paras` to `w`.
 func (paras paraList) writeText(w io.Writer) {
-	for ip, para := range paras {
-		if useTables {
-			para.writeText(w)
-			w.Write([]byte("\n"))
-		} else {
-			for il, line := range para.lines {
-				s := line.text()
-				reduced := false
-				if doHyphens {
-					if line.hyphenated && (il != len(para.lines)-1 || ip != len(paras)-1) {
-						// Line ending with hyphen. Remove it.
-						runes := []rune(s)
-						s = string(runes[:len(runes)-1])
-						reduced = true
-					}
-				}
-				w.Write([]byte(s))
-				if reduced {
-					// We removed the hyphen from the end of the line so we don't need a line ending.
-					continue
-				}
-				if il < len(para.lines)-1 && isZero(line.depth-para.lines[il+1].depth) {
-					// Next line is the same depth so it's the same line as this one in the extracted text
-					w.Write([]byte(" "))
-					continue
-				}
-				w.Write([]byte("\n"))
-			}
-			w.Write([]byte("\n"))
-		}
+	for _, para := range paras {
+		para.writeText(w)
+		w.Write([]byte("\n"))
 	}
 }
 
@@ -222,47 +189,10 @@ func (paras paraList) toTextMarks() []TextMark {
 		mark.Text = spaceChar
 		addMark(mark)
 	}
-	for ip, para := range paras {
-		if useTables {
-			paraMarks := para.toTextMarks(&offset)
-			marks = append(marks, paraMarks...)
-		} else {
-			for il, line := range para.lines {
-				lineMarks := line.toTextMarks(&offset)
-				marks = append(marks, lineMarks...)
-				reduced := false
-				if doHyphens {
-					if line.hyphenated && (il != len(para.lines)-1 || ip != len(paras)-1) {
-						tm := marks[len(marks)-1]
-						r := []rune(tm.Text)
-						if unicode.IsSpace(r[len(r)-1]) {
-							panic(tm)
-						}
-						if len(r) == 1 {
-							marks = marks[:len(marks)-1]
-							offset = marks[len(marks)-1].Offset + len(marks[len(marks)-1].Text)
-						} else {
-							s := string(r[:len(r)-1])
-							offset += len(s) - len(tm.Text)
-							tm.Text = s
-						}
-						reduced = true
-					}
-				}
-				if reduced {
-					continue
-				}
-				if il != len(para.lines)-1 && isZero(line.depth-para.lines[il+1].depth) {
-					// Next line is the same depth so it's the same line as this one in the extracted text
-					addSpaceMark(" ")
-					continue
-				}
-				addSpaceMark("\n")
-			}
-			if ip != len(paras)-1 {
-				addSpaceMark("\n")
-			}
-		}
+	for _, para := range paras {
+		paraMarks := para.toTextMarks(&offset)
+		marks = append(marks, paraMarks...)
+		addSpaceMark("\n")
 	}
 	return marks
 }
@@ -277,7 +207,6 @@ func (paras paraList) sortReadingOrder() {
 	paras.log("diffReadingDepth")
 	adj := paras.adjMatrix()
 	order := topoOrder(adj)
-	// paras.nodePath(adj, 5, 6)
 	printAdj(adj)
 	paras.reorder(order)
 }
@@ -298,10 +227,8 @@ func (paras paraList) adjMatrix() [][]bool {
 			adj[i][j], reasons[i][j] = paras.before(i, j)
 		}
 	}
-	if verbose || true {
+	if verbosePage {
 		show := func(a *textPara) string {
-			// return fmt.Sprintf("%.2f %.2f %q",
-			// 	a.PdfRectangle, a.eBBox, truncate(a.text(), 70))
 			return fmt.Sprintf("%6.2f %q", a.eBBox, truncate(a.text(), 70))
 		}
 		common.Log.Info("adjMatrix =======")
@@ -369,7 +296,9 @@ func overlappedXPara(r0, r1 *textPara) bool {
 
 // computeEBBoxes computes the eBBox fields in the elements of `paras`.
 func (paras paraList) computeEBBoxes() {
-	common.Log.Info("computeEBBoxes:")
+	if verbose {
+		common.Log.Info("computeEBBoxes:")
+	}
 
 	for _, para := range paras {
 		para.eBBox = para.PdfRectangle
@@ -419,7 +348,9 @@ func (paras paraList) computeEBBoxes() {
 				a.Urx = math.Max(a.Urx, b.Urx)
 			}
 		}
-		fmt.Printf("%4d: %6.2f->%6.2f %q\n", i, aa.eBBox, a, truncate(aa.text(), 50))
+		if verbose {
+			fmt.Printf("%4d: %6.2f->%6.2f %q\n", i, aa.eBBox, a, truncate(aa.text(), 50))
+		}
 		aa.eBBox = a
 	}
 	if useEBBox {
@@ -429,7 +360,11 @@ func (paras paraList) computeEBBoxes() {
 	}
 }
 
+// printAdj prints `adj` to stdout.
 func printAdj(adj [][]bool) {
+	if !verbosePage {
+		return
+	}
 	common.Log.Info("printAdj:")
 	n := len(adj)
 	fmt.Printf("%3s:", "")
@@ -450,93 +385,42 @@ func printAdj(adj [][]bool) {
 	}
 }
 
-func (paras paraList) nodePath(adj [][]bool, idx0, idx1 int) ([]int, bool) {
-	common.Log.Info("nodePath:")
-	n := len(adj)
-	visited := make([]bool, n)
-
-	// sortNode recursively sorts below node `idx` in the adjacency matrix.
-	var sortNode func(idx int, nodes []int) ([]int, bool)
-	sortNode = func(idx int, nodes []int) ([]int, bool) {
-		visited[idx] = true
-		nodes = append(nodes, idx)
-		if idx == idx1 {
-			return nodes, true
-		}
-		for i := 0; i < n; i++ {
-			if adj[idx][i] && !visited[i] {
-				if nodes, found := sortNode(i, nodes); found {
-					return nodes, true
-				}
-			}
-		}
-		return nil, false
-	}
-	var nodes []int
-	nodes, found := sortNode(idx0, nodes)
-
-	if !found {
-		panic(fmt.Errorf("no path: idx0=%d idx1=%dx1", idx0, idx1))
-	}
-	common.Log.Notice("node path")
-	for i, node := range nodes {
-		fmt.Printf("%4d: %d %s\n", i, node, paras[node])
-	}
-	return nodes, found
-}
-
 // topoOrder returns the ordering of the topological sort of the nodes with adjacency matrix `adj`.
 func topoOrder(adj [][]bool) []int {
-	common.Log.Info("topoOrder:")
+	if verbosePage {
+		common.Log.Info("topoOrder:")
+	}
 	n := len(adj)
 	visited := make([]bool, n)
 	var order []int
 
 	// sortNode recursively sorts below node `idx` in the adjacency matrix.
-	var sortNode func(idx, depth int)
-	sortNode = func(idx, depth int) {
+	var sortNode func(idx int)
+	sortNode = func(idx int) {
 		visited[idx] = true
 		for i := 0; i < n; i++ {
 			if adj[idx][i] && !visited[i] {
-				sortNode(i, depth+1)
+				sortNode(i)
 			}
 		}
-		last := -1
-		if len(order) > 0 {
-			last = order[len(order)-1]
-		}
-		start := fmt.Sprintf("%sidx=%2d->%2d", depthStr(depth), idx, last)
 		order = append(order, idx) // Should prepend but it's cheaper to append and reverse later.
-		end := fmt.Sprintf("%v", reversed(order))
-		fmt.Printf("\t%-30s %60s\n", start, end)
 	}
 
 	for idx := 0; idx < n; idx++ {
 		if !visited[idx] {
-			sortNode(idx, 0)
+			sortNode(idx)
 		}
 	}
-	// Order is currently reversed so change it to forward order.
-	// for i := 0; i < n/2; i++ {
-	// 	order[i], order[n-1-i] = order[n-1-i], order[i]
-	// }
 	return reversed(order)
 }
 
+// reversed return `order` reversed.
 func reversed(order []int) []int {
 	rev := make([]int, len(order))
 	for i, v := range order {
 		rev[len(order)-1-i] = v
 	}
 	return rev
-}
-
-func depthStr(depth int) string {
-	parts := make([]string, depth)
-	for i := range parts {
-		parts[i] = " "
-	}
-	return strings.Join(parts, "")
 }
 
 // reorder reorders `para` to the order in `order`.

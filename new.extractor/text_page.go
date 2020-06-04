@@ -12,53 +12,11 @@ import (
 	"unicode"
 
 	"github.com/unidoc/unipdf/v3/common"
-	"github.com/unidoc/unipdf/v3/model"
 )
 
 // paraList is a sequence of textPara. We use it so often that it is convenient to have its own
 // type so we can have methods on it.
 type paraList []*textPara
-
-// makeTextPage builds a paraList from `marks`, the textMarks on a page.
-func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraList {
-	common.Log.Trace("makeTextPage: %d elements pageSize=%.2f", len(marks), pageSize)
-
-	// Break the marks into words
-	words := makeTextWords(marks, pageSize)
-
-	// Divide the words into depth bins with each the contents of each bin sorted by reading direction
-	page := makeTextStrata(words, pageSize.Ury)
-	// Divide the page into rectangular regions for each paragraph and creata a textStrata for each one.
-	paraStratas := dividePage(page, pageSize.Ury)
-	// Arrange the contents of each para into lines
-	paras := make(paraList, len(paraStratas))
-	for i, para := range paraStratas {
-		paras[i] = composePara(para)
-	}
-	if verbose || true {
-		common.Log.Info("unsorted=========----------=====")
-		for i, para := range paras {
-			common.Log.Info("paras[%d]=%.2f%q", i, para.PdfRectangle, truncate(paras[i].text(), 200))
-		}
-	}
-
-	paras.computeEBBoxes()
-	paras = paras.extractTables()
-
-	// Sort the paras into reading order.
-	paras.sortReadingOrder()
-	if verbose || true {
-		common.Log.Info("para sorted in reading order -----------=========")
-		for i, para := range paras {
-			tab := ""
-			if para.table != nil {
-				tab = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
-			}
-			fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tab, truncate(para.text(), 50))
-		}
-	}
-	return paras
-}
 
 // dividePage divides page builds a list of paragraph textStrata from `page`, the page textStrata.
 func dividePage(page *textStrata, pageHeight float64) []*textStrata {
@@ -172,30 +130,6 @@ const doHyphens = true
 func (paras paraList) writeText(w io.Writer) {
 	for _, para := range paras {
 		para.writeText(w)
-		// for il, line := range para.lines {
-		// 	s := line.text()
-		// 	reduced := false
-		// 	if doHyphens {
-		// 		if line.hyphenated && (il != len(para.lines)-1 || ip != len(paras)-1) {
-		// 			// Line ending with hyphen. Remove it.
-		// 			runes := []rune(s)
-		// 			s = string(runes[:len(runes)-1])
-		// 			reduced = true
-		// 		}
-		// 	}
-		// 	w.Write([]byte(s))
-		// 	if reduced {
-		// 		// We removed the hyphen from the end of the line so we don't need a line ending.
-		// 		continue
-		// 	}
-		// 	if il < len(para.lines)-1 && isZero(line.depth-para.lines[il+1].depth) {
-		// 		// Next line is the same depth so it's the same line as this one in the extracted text
-		// 		w.Write([]byte(" "))
-		// 		continue
-		// 	}
-		// 	w.Write([]byte("\n"))
-		// }
-		// w.Write([]byte("\n"))
 	}
 }
 

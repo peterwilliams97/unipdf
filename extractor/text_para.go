@@ -16,6 +16,10 @@ import (
 	"github.com/unidoc/unipdf/v3/model"
 )
 
+// paraList is a sequence of textPara. We use it so often that it is convenient to have its own
+// type so we can have methods on it.
+type paraList []*textPara
+
 // textPara is a group of words in a rectangular region of a page that get read together.
 // An peragraph in a document might span multiple pages. This is the paragraph framgent on one page.
 // We start by finding paragraph regions on a page, then we break the words into the textPara into
@@ -281,15 +285,42 @@ func composePara(strata *textStrata) *textPara {
 	if len(para.lines) == 0 {
 		panic(para)
 	}
-	common.Log.Info("!!! para=%s", para.String())
-	for i, line := range para.lines {
-		fmt.Printf("%4d: %s\n", i, line)
-		for j, word := range line.words {
-			fmt.Printf("%8d: %s\n", j, word)
-			for k, mark := range word.marks {
-				fmt.Printf("%12d: %s\n", k, mark)
+	if verbosePara {
+		common.Log.Info("!!! para=%s", para.String())
+		for i, line := range para.lines {
+			fmt.Printf("%4d: %s\n", i, line)
+			for j, word := range line.words {
+				fmt.Printf("%8d: %s\n", j, word)
+				for k, mark := range word.marks {
+					fmt.Printf("%12d: %s\n", k, mark)
+				}
 			}
 		}
 	}
 	return para
+}
+
+// log logs the contents of `paras`.
+func (paras paraList) log(title string) {
+	if !verbosePage {
+		return
+	}
+	common.Log.Info("%8s: %d paras =======-------=======", title, len(paras))
+	for i, para := range paras {
+		if para == nil {
+			continue
+		}
+		text := para.text()
+		tabl := "  "
+		if para.table != nil {
+			tabl = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
+		}
+		fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tabl, truncate(text, 50))
+		if len(text) == 0 {
+			panic("empty")
+		}
+		if para.table != nil && len(para.table.cells) == 0 {
+			panic(para)
+		}
+	}
 }

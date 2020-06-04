@@ -63,7 +63,7 @@ func (e *Extractor) ExtractPageText() (*PageText, int, int, error) {
 func (e *Extractor) extractPageText(contents string, resources *model.PdfPageResources,
 	parentCTM transform.Matrix, level int) (
 	*PageText, int, int, error) {
-	common.Log.Info("extractPageText: level=%d", level)
+	common.Log.Trace("extractPageText: level=%d", level)
 	pageText := &PageText{pageSize: e.mediaBox}
 	state := newTextState(e.mediaBox)
 	var savedStates stateStack

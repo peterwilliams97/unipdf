@@ -5,16 +5,23 @@
 
 package extractor
 
+// The follow constant configure debugging.
 const (
-	verbose     = true
-	verboseGeom = true
-	doHyphens   = true
-	useTables   = true
-	useEBBox    = false
+	verbose      = false
+	verboseGeom  = false
+	verbosePage  = false
+	verbosePara  = false
+	verboseTable = false
 )
 
+// The following constants control the approaches used in the code.
 const (
+	doHyphens = true
+	useEBBox  = false
+)
 
+// The following constants are the tuning parameter for text extracton
+const (
 	// Size of depth bins in points
 	depthBinPoints = 6
 

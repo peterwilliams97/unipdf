@@ -16,6 +16,7 @@ const (
 
 // The following constants control the approaches used in the code.
 const (
+	useTables = false
 	doHyphens = true
 	useEBBox  = false
 )

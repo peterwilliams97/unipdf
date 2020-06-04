@@ -112,6 +112,23 @@ func (tm *textMark) ToTextMark() TextMark {
 	}
 }
 
+// appendTextMark appends `mark` to `marks` and updates `offset`, the offset of `mark` in the extracted
+// text.
+func appendTextMark(marks []TextMark, offset *int, mark TextMark) []TextMark {
+	mark.Offset = *offset
+	marks = append(marks, mark)
+	*offset += len(mark.Text)
+	return marks
+}
+
+// appendSpaceMark appends a spaceMark with space character `space` to `marks` and updates `offset`,
+// the offset of `mark` in the extracted text.
+func appendSpaceMark(marks []TextMark, offset *int, spaceChar string) []TextMark {
+	mark := spaceMark
+	mark.Text = spaceChar
+	return appendTextMark(marks, offset, mark)
+}
+
 // nearestMultiple return the integer multiple of `m` that is closest to `x`.
 func nearestMultiple(x float64, m int) int {
 	if m == 0 {

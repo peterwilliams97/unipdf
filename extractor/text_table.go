@@ -459,7 +459,7 @@ func (t *textTable) subTable(w, h int) *textTable {
 // row returns the (0-offset) `y`th row in `t`.
 func (t textTable) row(y int) cellList {
 	if !(0 <= y && y < t.h) {
-		panic(fmt.Errorf("y=%d is an invalid row for %s", y, t))
+		panic(fmt.Errorf("y=%d is an invalid row for %s", y, t.String()))
 	}
 	cells := make(cellList, t.w)
 	for x := 0; x < t.w; x++ {
@@ -471,7 +471,7 @@ func (t textTable) row(y int) cellList {
 // column returns the (0-offset) `x`th column in `t`.
 func (t textTable) column(x int) cellList {
 	if !(0 <= x && x < t.w) {
-		panic(fmt.Errorf("x=%d is an invalid column for %s", x, t))
+		panic(fmt.Errorf("x=%d is an invalid column for %s", x, t.String()))
 	}
 	cells := make(cellList, t.h)
 	for y := 0; y < t.h; y++ {

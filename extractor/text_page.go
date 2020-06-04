@@ -35,7 +35,9 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	paras.log("unsorted")
 	// paras.computeEBBoxes()
 
-	paras = paras.extractTables()
+	if useTables {
+		paras = paras.extractTables()
+	}
 	// paras.log("tables extracted")
 	paras.computeEBBoxes()
 	paras.log("EBBoxes 2")
@@ -164,6 +166,19 @@ func (paras paraList) writeText(w io.Writer) {
 	}
 }
 
+// toTextMarks creates the TextMarkArray corresponding to the extracted text created by
+// paras `paras`.writeText().
+func (paras paraList) toTextMarks() []TextMark {
+	offset := 0
+	var marks []TextMark
+	for _, para := range paras {
+		paraMarks := para.toTextMarks(&offset)
+		marks = append(marks, paraMarks...)
+		marks = appendSpaceMark(marks, &offset, "\n")
+	}
+	return marks
+}
+
 func (paras paraList) toTables() []TextTable {
 	var tables []TextTable
 	for _, para := range paras {
@@ -172,29 +187,6 @@ func (paras paraList) toTables() []TextTable {
 		}
 	}
 	return tables
-}
-
-// toTextMarks creates the TextMarkArray corresponding to the extracted text created by
-// paras `paras`.writeText().
-func (paras paraList) toTextMarks() []TextMark {
-	offset := 0
-	var marks []TextMark
-	addMark := func(mark TextMark) {
-		mark.Offset = offset
-		marks = append(marks, mark)
-		offset += len(mark.Text)
-	}
-	addSpaceMark := func(spaceChar string) {
-		mark := spaceMark
-		mark.Text = spaceChar
-		addMark(mark)
-	}
-	for _, para := range paras {
-		paraMarks := para.toTextMarks(&offset)
-		marks = append(marks, paraMarks...)
-		addSpaceMark("\n")
-	}
-	return marks
 }
 
 // sortReadingOrder sorts `paras` in reading order.

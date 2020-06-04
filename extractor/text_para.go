@@ -57,145 +57,121 @@ func (p *textPara) text() string {
 
 // writeText writes the text of `p` including tables to `w`.
 func (p *textPara) writeText(w io.Writer) {
-	if p.table != nil {
-		for y := 0; y < p.table.h; y++ {
-			for x := 0; x < p.table.w; x++ {
-				cell := p.table.get(x, y)
-				if cell == nil {
-					w.Write([]byte("\t"))
-				} else {
-					cell.writeCellText(w)
-				}
-				w.Write([]byte(" "))
-			}
-			if y < p.table.h-1 {
-				w.Write([]byte("\n"))
-			}
-		}
-	} else {
+	if p.table == nil {
 		p.writeCellText(w)
+		return
 	}
-}
-
-// writeCellText writes the text of `p` not including tables to `w`.
-func (p *textPara) writeCellText(w io.Writer) {
-	// w := new(bytes.Buffer)
-	para := p
-	for il, line := range para.lines {
-		s := line.text()
-		reduced := false
-		if doHyphens {
-			if line.hyphenated && il != len(para.lines)-1 {
-				// Line ending with hyphen. Remove it.
-				runes := []rune(s)
-				s = string(runes[:len(runes)-1])
-				reduced = true
+	for y := 0; y < p.table.h; y++ {
+		for x := 0; x < p.table.w; x++ {
+			cell := p.table.get(x, y)
+			if cell == nil {
+				w.Write([]byte("\t"))
+			} else {
+				cell.writeCellText(w)
 			}
-		}
-		w.Write([]byte(s))
-		if reduced {
-			// We removed the hyphen from the end of the line so we don't need a line ending.
-			continue
-		}
-		if il < len(para.lines)-1 && isZero(line.depth-para.lines[il+1].depth) {
-			// Next line is the same depth so it's the same line as this one in the extracted text
 			w.Write([]byte(" "))
-			continue
 		}
-		if il < len(para.lines)-1 {
+		if y < p.table.h-1 {
 			w.Write([]byte("\n"))
 		}
 	}
 }
 
-// toTextMarks creates the TextMarkArray corresponding to the extracted text created by
-// paras `p`.writeText().
-func (p *textPara) toTextMarks(offset *int) []TextMark {
-	var marks []TextMark
-	addMark := func(mark TextMark) {
-		mark.Offset = *offset
-		marks = append(marks, mark)
-		*offset += len(mark.Text)
-	}
-	addSpaceMark := func(spaceChar string) {
-		mark := spaceMark
-		mark.Text = spaceChar
-		addMark(mark)
-	}
-	if p.table != nil {
-		for y := 0; y < p.table.h; y++ {
-			for x := 0; x < p.table.w; x++ {
-				cell := p.table.get(x, y)
-				if cell == nil {
-					addSpaceMark("\t")
-				} else {
-					cellMarks := cell.toCellTextMarks(offset)
-					marks = append(marks, cellMarks...)
-				}
-				addSpaceMark(" ")
-			}
-			addSpaceMark("\n")
+// writeCellText writes the text of `p` not including tables to `w`.
+func (p *textPara) writeCellText(w io.Writer) {
+	for il, line := range p.lines {
+		lineText := line.text()
+		reduced := doHyphens && line.hyphenated && il != len(p.lines)-1
+		if reduced { // Line ending with hyphen. Remove it.
+			lineText = removeLastRune(lineText)
 		}
-	} else {
-		marks = p.toCellTextMarks(offset)
-		addSpaceMark("\n")
+		w.Write([]byte(lineText))
+		if !(reduced || il == len(p.lines)-1) {
+			w.Write([]byte(getSpace(line.depth, p.lines[il+1].depth)))
+		}
+	}
+}
+
+// toCellTextMarks creates the TextMarkArray corresponding to the extracted text created by
+// paras `paras`.writeCellText().
+func (p *textPara) toCellTextMarks(offset *int) []TextMark {
+	var marks []TextMark
+	for il, line := range p.lines {
+		lineMarks := line.toTextMarks(offset)
+		reduced := doHyphens && line.hyphenated && il != len(p.lines)-1
+		if reduced { // Line ending with hyphen. Remove it.
+			if len([]rune(line.text())) < minHyphenation {
+				panic(line.text())
+			}
+			if len(lineMarks) < 1 {
+				panic(line.text())
+			}
+			lineMarks = removeLastTextMarkRune(lineMarks, offset)
+		}
+		marks = append(marks, lineMarks...)
+		if !(reduced || il == len(p.lines)-1) {
+			marks = appendSpaceMark(marks, offset, getSpace(line.depth, p.lines[il+1].depth))
+		}
 	}
 	return marks
 }
 
+func removeLastTextMarkRune(marks []TextMark, offset *int) []TextMark {
+	tm := marks[len(marks)-1]
+	runes := []rune(tm.Text)
+	if unicode.IsSpace(runes[len(runes)-1]) {
+		panic(tm)
+	}
+	if len(runes) == 1 {
+		marks = marks[:len(marks)-1]
+		tm1 := marks[len(marks)-1]
+		*offset = tm1.Offset + len(tm1.Text)
+	} else {
+		text := removeLastRune(tm.Text)
+		*offset += len(text) - len(tm.Text)
+		tm.Text = text
+	}
+	return marks
+}
+
+func removeLastRune(text string) string {
+	runes := []rune(text)
+	if len(runes) < 2 {
+		panic(text)
+	}
+	return string(runes[:len(runes)-1])
+}
+
+// getSpace returns the space to insert between lines of depth `depth1` and `depth2`.
+// Next line is the same depth so it's the same line as this one in the extracted text
+func getSpace(depth1, depth2 float64) string {
+	eol := !isZero(depth1 - depth2)
+	if eol {
+		return "\n"
+	}
+	return " "
+}
+
 // toTextMarks creates the TextMarkArray corresponding to the extracted text created by
-// paras `paras`.writeCellText().
-func (p *textPara) toCellTextMarks(offset *int) []TextMark {
+// paras `p`.writeText().
+func (p *textPara) toTextMarks(offset *int) []TextMark {
+	if p.table == nil {
+		return p.toCellTextMarks(offset)
+	}
 	var marks []TextMark
-	addMark := func(mark TextMark) {
-		mark.Offset = *offset
-		marks = append(marks, mark)
-		*offset += len(mark.Text)
-	}
-	addSpaceMark := func(spaceChar string) {
-		mark := spaceMark
-		mark.Text = spaceChar
-		addMark(mark)
-	}
-	para := p
-
-	for il, line := range para.lines {
-		lineMarks := line.toTextMarks(offset)
-		marks = append(marks, lineMarks...)
-		reduced := false
-		if doHyphens {
-			if line.hyphenated && il != len(para.lines)-1 {
-				tm := marks[len(marks)-1]
-				r := []rune(tm.Text)
-				if unicode.IsSpace(r[len(r)-1]) {
-					panic(tm)
-				}
-				if len(r) == 1 {
-					marks = marks[:len(marks)-1]
-					*offset = marks[len(marks)-1].Offset + len(marks[len(marks)-1].Text)
-				} else {
-					s := string(r[:len(r)-1])
-					*offset += len(s) - len(tm.Text)
-					tm.Text = s
-				}
-				reduced = true
+	for y := 0; y < p.table.h; y++ {
+		for x := 0; x < p.table.w; x++ {
+			cell := p.table.get(x, y)
+			if cell == nil {
+				marks = appendSpaceMark(marks, offset, "\t")
+			} else {
+				cellMarks := cell.toCellTextMarks(offset)
+				marks = append(marks, cellMarks...)
 			}
+			marks = appendSpaceMark(marks, offset, " ")
 		}
-		if reduced {
-			continue
-		}
-		if il < len(para.lines)-1 && isZero(line.depth-para.lines[il+1].depth) {
-			// Next line is the same depth so it's the same line as this one in the extracted text
-			addSpaceMark(" ")
-			continue
-		}
-		if il < len(para.lines)-1 {
-			addSpaceMark("\n")
-		}
+		marks = appendSpaceMark(marks, offset, "\n")
 	}
-
-	addSpaceMark("\n")
-
 	return marks
 }
 

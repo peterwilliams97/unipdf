@@ -914,11 +914,11 @@ func isTextSpace(text string) bool {
 
 // PageText represents the layout of text on a device page.
 type PageText struct {
-	marks      []*textMark // Texts and their positions on a PDF page.
-	viewText   string      // Extracted page text.
-	viewMarks  []TextMark  // Public view of `marks`.
-	viewTables []TextTable
-	pageSize   model.PdfRectangle
+	marks      []*textMark        // Texts and their positions on a PDF page.
+	viewText   string             // Extracted page text.
+	viewMarks  []TextMark         // Public view of text marks`.
+	viewTables []TextTable        // Public view of text table`.
+	pageSize   model.PdfRectangle // Page size. Used to calculate depth.
 }
 
 // String returns a string describing `pt`.

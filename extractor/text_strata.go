@@ -131,7 +131,10 @@ func (s *textStrata) scanBand(title string, para *textStrata,
 			if !readingOverlap(para, word) {
 				continue
 			}
-			fontRatio := (word.fontsize - fontsize) / math.Min(word.fontsize, fontsize)
+			fontRatio1 := math.Abs(word.fontsize-fontsize) / fontsize
+			fontRatio2 := word.fontsize / fontsize
+
+			fontRatio := math.Min(fontRatio1, fontRatio2)
 			if fontTol > 0 {
 				if fontRatio > fontTol {
 					continue

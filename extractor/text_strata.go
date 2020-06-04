@@ -131,7 +131,7 @@ func (s *textStrata) scanBand(title string, para *textStrata,
 			if !readingOverlap(para, word) {
 				continue
 			}
-			fontRatio := math.Abs(word.fontsize-fontsize) / math.Min(word.fontsize, fontsize)
+			fontRatio := (word.fontsize - fontsize) / math.Min(word.fontsize, fontsize)
 			if fontTol > 0 {
 				if fontRatio > fontTol {
 					continue
@@ -141,11 +141,11 @@ func (s *textStrata) scanBand(title string, para *textStrata,
 				panic(fontTol)
 			}
 			if !detectOnly {
-				if !para.isHomogenous(word) {
-					panic(fmt.Errorf("not homogeneous fontTol=%.2f ratio=%.2f (%.2f->%.2f)\n\tpara=%s\n\tword=%s",
-						fontTol, fontRatio, fontsize, word.fontsize,
-						para.String(), word.String()))
-				}
+				// if !para.isHomogenous(word) {
+				// 	panic(fmt.Errorf("not homogeneous fontTol=%.2f ratio=%.2f (%.2f->%.2f)\n\tpara=%s\n\tword=%s",
+				// 		fontTol, fontRatio, fontsize, word.fontsize,
+				// 		para.String(), word.String()))
+				// }
 				moveWord(depthIdx, s, para, word)
 			}
 			newWords = append(newWords, word)

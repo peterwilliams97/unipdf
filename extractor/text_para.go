@@ -77,6 +77,31 @@ func (p *textPara) writeText(w io.Writer) {
 	}
 }
 
+// toTextMarks creates the TextMarkArray corresponding to the extracted text created by
+// paras `p`.writeText().
+func (p *textPara) toTextMarks(offset *int) []TextMark {
+	if p.table == nil {
+		return p.toCellTextMarks(offset)
+	}
+	var marks []TextMark
+	for y := 0; y < p.table.h; y++ {
+		for x := 0; x < p.table.w; x++ {
+			cell := p.table.get(x, y)
+			if cell == nil {
+				marks = appendSpaceMark(marks, offset, "\t")
+			} else {
+				cellMarks := cell.toCellTextMarks(offset)
+				marks = append(marks, cellMarks...)
+			}
+			marks = appendSpaceMark(marks, offset, " ")
+		}
+		if y < p.table.h-1 {
+			marks = appendSpaceMark(marks, offset, "\n")
+		}
+	}
+	return marks
+}
+
 // writeCellText writes the text of `p` not including tables to `w`.
 func (p *textPara) writeCellText(w io.Writer) {
 	for il, line := range p.lines {
@@ -150,29 +175,6 @@ func getSpace(depth1, depth2 float64) string {
 		return "\n"
 	}
 	return " "
-}
-
-// toTextMarks creates the TextMarkArray corresponding to the extracted text created by
-// paras `p`.writeText().
-func (p *textPara) toTextMarks(offset *int) []TextMark {
-	if p.table == nil {
-		return p.toCellTextMarks(offset)
-	}
-	var marks []TextMark
-	for y := 0; y < p.table.h; y++ {
-		for x := 0; x < p.table.w; x++ {
-			cell := p.table.get(x, y)
-			if cell == nil {
-				marks = appendSpaceMark(marks, offset, "\t")
-			} else {
-				cellMarks := cell.toCellTextMarks(offset)
-				marks = append(marks, cellMarks...)
-			}
-			marks = appendSpaceMark(marks, offset, " ")
-		}
-		marks = appendSpaceMark(marks, offset, "\n")
-	}
-	return marks
 }
 
 // bbox makes textPara implement the `bounded` interface.

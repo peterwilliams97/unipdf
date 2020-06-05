@@ -124,11 +124,6 @@ func (cells cellList) bbox() model.PdfRectangle {
 	return rect
 }
 
-// type sparseCell struct {
-// 	y, x int
-// 	*textPara
-// }
-
 const DBL_MIN, DBL_MAX = -1.0e10, +1.0e10
 
 // extractTables converts the`paras` that are table cells to tables containing those cells.
@@ -646,10 +641,10 @@ func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
 		}
 
 		if col.equals(row) {
-			// panic(fmt.Errorf("columns can't be row\n\tcol=%6.2f %q\n\trow=%6.2f %q",
+			// panic(fmt.Errorf("columns can't be rows\n\tcol=%6.2f %q\n\trow=%6.2f %q",
 			// 	col.bbox(), col.asStrings(), row.bbox(), row.asStrings()))
-			common.Log.Error("columns can't be row\n\tcol=%6.2f %q\n\trow=%6.2f %q",
-				col.bbox(), col.asStrings(), row.bbox(), row.asStrings())
+			// common.Log.Error("columns can't be rows\n\tcol=%6.2f %q\n\trow=%6.2f %q",
+			// 	col.bbox(), col.asStrings(), row.bbox(), row.asStrings())
 			continue
 		}
 		if len(col) == 0 || len(row) == 0 {

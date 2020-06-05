@@ -175,7 +175,7 @@ func TestTermMarksFiles(t *testing.T) {
 	if !doStress {
 		t.Skip("skipping stress test")
 	}
-	common.Log.Info("Running text stress tests. go test --short to skip these.")
+	common.Log.Info("Running text stress tests.")
 	if len(corpusFolder) == 0 && !forceTest {
 		t.Log("Corpus folder not set - skipping")
 		return

@@ -80,10 +80,9 @@ func (p *textPara) writeText(w io.Writer) {
 			} else {
 				cell.writeCellText(w)
 			}
-			w.Write([]byte(" "))
-		}
-		if y < p.table.h-1 {
-			w.Write([]byte("\n"))
+			if !(y == p.table.h-1 && x == p.table.w-1) {
+				w.Write([]byte("\n"))
+			}
 		}
 	}
 }
@@ -104,10 +103,9 @@ func (p *textPara) toTextMarks(offset *int) []TextMark {
 				cellMarks := cell.toCellTextMarks(offset)
 				marks = append(marks, cellMarks...)
 			}
-			marks = appendSpaceMark(marks, offset, " ")
-		}
-		if y < p.table.h-1 {
-			marks = appendSpaceMark(marks, offset, "\n")
+			if !(y == p.table.h-1 && x == p.table.w-1) {
+				marks = appendSpaceMark(marks, offset, " \n")
+			}
 		}
 	}
 	return marks
@@ -278,23 +276,29 @@ func (strata *textStrata) composePara() *textPara {
 	if len(para.lines) == 0 {
 		panic(para)
 	}
-	if verbosePara {
-		common.Log.Info("!!! para=%s", para.String())
-		if verboseParaLine {
-			for i, line := range para.lines {
-				fmt.Printf("%4d: %s\n", i, line.String())
-				if verboseParaWord {
-					for j, word := range line.words {
-						fmt.Printf("%8d: %s\n", j, word.String())
-						for k, mark := range word.marks {
-							fmt.Printf("%12d: %s\n", k, mark.String())
-						}
+	para.log("composed")
+	return para
+}
+
+func (para *textPara) log(title string) {
+	if !verbosePara {
+		return
+	}
+	common.Log.Info("!!! %s para=%s", title, para.String())
+	if verboseParaLine {
+		for i, line := range para.lines {
+			fmt.Printf("%4d: %s\n", i, line.String())
+			if verboseParaWord {
+				for j, word := range line.words {
+					fmt.Printf("%8d: %s\n", j, word.String())
+					for k, mark := range word.marks {
+						fmt.Printf("%12d: %s\n", k, mark.String())
 					}
 				}
 			}
 		}
 	}
-	return para
+
 }
 
 // log logs the contents of `paras`.
@@ -318,6 +322,15 @@ func (paras paraList) log(title string) {
 		}
 		if para.table != nil && len(para.table.cells) == 0 {
 			panic(para)
+		}
+		if para.table != nil {
+			for y := 0; y < para.table.h; y++ {
+				for x := 0; x < para.table.w; x++ {
+					cell := para.table.get(x, y)
+					fmt.Printf("%8d %2d: serial=%d %6.2f %q\n",
+						x, y, cell.serial, cell.PdfRectangle, truncate(cell.text(), 50))
+				}
+			}
 		}
 	}
 }

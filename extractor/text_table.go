@@ -8,7 +8,9 @@ package extractor
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
@@ -41,25 +43,48 @@ func (t *textTable) bbox() model.PdfRectangle {
 }
 
 func (t *textTable) get(x, y int) *textPara {
-	t.validate(x, y)
+	t.validateArgs(x, y)
 	return t.cells[cellIndex{x, y}]
 }
 func (t *textTable) put(x, y int, cell *textPara) {
-	t.validate(x, y)
+	t.validateArgs(x, y)
 	t.cells[cellIndex{x, y}] = cell
 }
 func (t *textTable) del(x, y int) {
-	t.validate(x, y)
+	t.validateArgs(x, y)
 	delete(t.cells, cellIndex{x, y})
 }
 
-func (t *textTable) validate(x, y int) {
+func (t *textTable) validateArgs(x, y int) {
 	if !(0 <= x && x < t.w) {
 		panic(fmt.Errorf("bad x=%d t=%s", x, t))
 	}
 	if !(0 <= y && y < t.h) {
 		panic(fmt.Errorf("bad y=%d t=%s", y, t))
 	}
+}
+
+func (t *textTable) validate() {
+	if !t.isValid() {
+		panic("duplicagte")
+	}
+}
+
+func (t *textTable) isValid() bool {
+	var cells cellList
+	for _, cell := range t.cells {
+		cells = append(cells, cell)
+	}
+	n := len(cells)
+	for i := 0; i < n; i++ {
+		for j := 1 + 1; j < n; j++ {
+			if cells[i].serial == cells[j].serial {
+				panic("ñœ")
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // fontsize for a table is the minimum font size of the cells.
@@ -112,7 +137,7 @@ type cellMap map[cellIndex]*textPara
 type cellList paraList
 
 func (cells cellList) String() string {
-	return fmt.Sprintf("%d %q", len(cells), cells.asStrings())
+	return fmt.Sprintf("%6.2f %d %q", cells.bbox(), len(cells), cells.asStrings())
 }
 
 // bbox returns the union of the bounds of `cells`.
@@ -387,15 +412,77 @@ func (cells cellList) aligned(get getter, delta float64, i, j int) bool {
 
 // parasAligned returns true if `para1` and `para2` are aligned within `delta` for attribute `get`.
 func parasAligned(get getter, delta float64, para1, para2 *textPara) bool {
+	if get == nil {
+		panic("no get")
+	}
 	z1 := get(para1)
 	z2 := get(para2)
 	return math.Abs(z1-z2) <= delta
 }
 
+// parasAligned2 returns true if `para1` and `para2` are aligned within `delta` for any attribute in
+// `getters`.
+func parasAligned2(getters []getter, delta float64, para1, para2 *textPara) bool {
+	for _, get := range getters {
+		z1 := get(para1)
+		z2 := get(para2)
+		if math.Abs(z1-z2) <= delta {
+			return true
+		}
+	}
+	return false
+}
+
+// parasAligned2 returns true if `para1` and `para2` are aligned within `delta` for any attribute in
+// `getters`.
+func parasAligned3(getters []getter, delta float64, cells cellList, cell *textPara) getter {
+	// cells2 := append(cells, cell)
+	cells2 := make(cellList, len(cells)+1)
+	copy(cells2, cells)
+	cells2[len(cells)] = cell
+	// for i, c := range cells {
+
+	// }
+	for _, get := range getters {
+		if cells2.alignedGetter(get, delta) {
+			return get
+		}
+	}
+	return nil
+}
+
+// parasAligned2 returns true if `para1` and `para2` are aligned within `delta` for any attribute in
+// `getters`.
+func parasAligned4(delta float64, getCells *alignment, cell *textPara) bool {
+	// cells2 := append(cells, c{{ell)
+	if len(getCells.cells) == 0 {
+		return true
+	}
+	cells2 := make(cellList, len(getCells.cells)+1)
+	copy(cells2, getCells.cells)
+	cells2[len(getCells.cells)] = cell
+
+	get := getCells.getter()
+	return cells2.alignedGetter(get, delta)
+}
+
+func (cells cellList) alignedGetter(get getter, delta float64) bool {
+	if len(cells) == 0 {
+		return true
+	}
+	cell0 := cells[0]
+	for _, cell := range cells[1:] {
+		if !parasAligned(get, delta, cell0, cell) {
+			return false
+		}
+	}
+	return true
+}
+
 // fontsize for a paraList is the minimum font size of the paras.
-func (paras cellList) fontsize() float64 {
+func (cells cellList) fontsize() float64 {
 	size := -1.0
-	for _, p := range paras {
+	for _, p := range cells {
 		if p != nil {
 			if size < 0 {
 				size = p.fontsize()
@@ -558,24 +645,54 @@ func (t textTable) toTextTable() TextTable {
 func (cells cellList) findTables() []*textTable {
 	if verboseTable {
 		common.Log.Info("findTables @@1: cells=%d", len(cells))
+		common.Log.Info("cols <- findGetterCandidates(getXLl, maxIntraReadingGapR, false)")
 	}
+	cols := cells.findGetterCandidates(_getXLl, gettersX, maxIntraReadingGapR, false)
+	sortContents(_getYUr, true, cols)
 
-	cols := cells.findGetterCandidates(getXLl, maxIntraReadingGapR, false)
-	rows := cells.findGetterCandidates(getYUr, lineDepthR, true)
-	sortContents(getYUr, true, cols)
-	sortContents(getXLl, false, rows)
 	if verboseTable {
-		common.Log.Info("findTables @@2: cols=%d rows=%d", len(cols), len(rows))
+		common.Log.Info("rows <- findGetterCandidates(getYUr, lineDepthR, true)")
+	}
+	rows := cells.findGetterCandidates(_getYUr, gettersY, lineDepthR, true)
+	sortContents(_getXLl, false, rows)
+
+	if verboseTable {
+		common.Log.Info("findTables @@2a: rows=%d", len(rows))
+		for i, getCell := range rows {
+			col := getCell.cells
+			fmt.Printf("%4d: %6.2f %2d: %q\n", i, col.bbox(), len(col), truncate(col.text(), 80))
+			col.validate()
+		}
+		common.Log.Info("findTables @@2b: cols=%d", len(cols))
+		for i, getCell := range cols {
+			col := getCell.cells
+			fmt.Printf("%4d: %6.2f %2d: %q\n", i, col.bbox(), len(col), truncate(col.text(), 80))
+			col.validate()
+		}
+		common.Log.Info("findTables @@2: candidates cols=%d rows=%d", len(cols), len(rows))
 	}
 	if len(cols) == 0 || len(rows) == 0 {
 		return nil
 	}
 
-	tables := cells.findTableCandidates(cols, rows)
+	alignmentMap := makeAlignmentMap(cols, rows)
+
+	tables := cells.findTableCandidates(cols, rows, alignmentMap)
+	for _, table := range tables {
+		table.validate()
+	}
 	logTables(tables, "candidates")
 	tables = removeDuplicateTables((tables))
 	logTables(tables, "distinct")
 	return tables
+}
+
+func (cells cellList) text() string {
+	texts := make([]string, len(cells))
+	for i, para := range cells {
+		texts[i] = truncate(para.text(), 20)
+	}
+	return strings.Join(texts, "|")
 }
 
 func removeDuplicateTables(tables []*textTable) []*textTable {
@@ -605,17 +722,36 @@ outer:
 	return distinct
 }
 
-func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
+// !@#$
+// For each row. column pair row0, col9
+//   Find
+//      (maximum columns starting at row0) x
+//      (maxumn rows starting at col0)
+//   For each column check alignment with col0
+//   For each row check alignment with row0
+//   Check for other paras polluting grid
+func (cells cellList) findTableCandidates(cols, rows []*alignment,
+	alignmentMap map[*textPara]xyAlignment) []*textTable {
 	if verboseTable {
-		common.Log.Info("findTableCandidates: cols=%d rows=%d\n\tcols=%s\n\trows=%s",
-			len(cols), len(rows), cols[0].String(), rows[0].String())
+		common.Log.Info("findTableCandidates: cols=%d rows=%d", len(cols), len(rows))
+		fmt.Printf("\tCandidates\n")
 	}
 
 	var candidates [][2]cellList
-	for _, col := range cols {
-		for _, row := range rows {
-			col2, row2 := makeCandidate(col, row)
+	for x, col := range cols {
+		for y, row := range rows {
+			gcol2, grow2 := makeCandidate(col, row)
+			col2 := gcol2.cells
+			row2 := grow2.cells
 			if col2 != nil && len(col2) >= 2 && len(row2) >= 2 {
+				if verboseTable {
+					fmt.Printf("\t\t%d: [%2d %2d]\n"+
+						"\t\t\t  col=%s\n"+
+						"\t\t\t  row=%s\n"+
+						"\t\t\t->col=%s\n"+
+						"\t\t\t  row=%s\n",
+						len(candidates), x, y, col, row, col2, row2)
+				}
 				candidates = append(candidates, [2]cellList{col2, row2})
 			}
 		}
@@ -632,12 +768,19 @@ func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
 		}
 		return i < j
 	})
+	if verboseTable {
+		common.Log.Info("sorted candidates")
+	}
 	var tables []*textTable
 	for i, cand := range candidates {
 		col, row := cand[0], cand[1]
 		if verboseTable {
-			fmt.Printf("%8d: findTableCandidates: col=%2d %6.2f row=%2d %6.2f\n\tcol=%s\n\trow=%s\n",
-				i, len(col), col.bbox(), len(row), row.bbox(), col.asStrings(), row.asStrings())
+			fmt.Printf("\t %2d: findTableCandidates: col=%2d row=%2d \n"+
+				"\t\tcol=%6.2f%s\n"+
+				"\t\trow=%6.2f%s\n",
+				i, len(col), len(row),
+				col.bbox(), col,
+				row.bbox(), row)
 		}
 
 		if col.equals(row) {
@@ -653,11 +796,12 @@ func (cells cellList) findTableCandidates(cols, rows []cellList) []*textTable {
 		boundary := append(row, col...).bbox()
 
 		subset := cells.within(boundary)
-		table := subset.validTable(col, row)
+		table := subset.validTable(col, row, alignmentMap)
 		// fmt.Printf("%12s boundary=%6.2f subset=%3d=%6.2f valid=%t\n", "",
 		// 	boundary, len(subset), subset.bbox(), table != nil)
 		if table != nil {
 			table.log("VALID!!")
+			table.validate()
 			tables = append(tables, table)
 		}
 	}
@@ -675,7 +819,21 @@ func (cells cellList) within(boundary model.PdfRectangle) cellList {
 	return subset
 }
 
-func makeCandidate(col, row cellList) (cellList, cellList) {
+// makeCandidate returns (col`, row`) where
+//    col` is the subslice of col starting at row[0]
+//    row` is the subslice of row starting at col[0]
+// If no element of col intersects with row[0] and no no element of row intersects with col[0] then
+//  nil, nil is returned.
+// The returned (col`, row`) are candidates to be the left column and top row of a table.
+func makeCandidate(gcol, grow *alignment) (*alignment, *alignment) {
+	col := gcol.cells
+	row := grow.cells
+	repack := func(col, row cellList) (*alignment, *alignment) {
+		ggcol := &alignment{getCount: gcol.getCount, cells: col}
+		ggrow := &alignment{getCount: grow.getCount, cells: row}
+		return ggcol, ggrow
+	}
+
 	var col1, row1 cellList
 	for i, c := range col {
 		if c == row[0] {
@@ -692,22 +850,25 @@ func makeCandidate(col, row cellList) (cellList, cellList) {
 			break
 		}
 	}
-	if col1 != nil && col2 != nil {
-		if len(col1)*len(row1) >= len(col2)*len(row2) {
-			return col1, row1
-		}
-		return col2, row2
+	if col1 == nil && col2 == nil {
+		return repack(nil, nil)
 	}
 	if col1 != nil {
-		return col1, row1
+		if col2 != nil {
+			if len(col1)*len(row1) >= len(col2)*len(row2) {
+				return repack(col1, row1)
+			}
+			return repack(col2, row2)
+		}
+		return repack(col1, row1)
 	}
-	return col2, row2
+	return repack(col2, row2)
 }
 
 // validTable returns a sparse table containing `cells`if `cells` make up a valid table with `col`
 // on its left and `row` on its top.
 // nil is returned if there is no valid table
-func (cells cellList) validTable(col, row cellList) *textTable {
+func (cells cellList) validTable(col, row cellList, alignmentMap map[*textPara]xyAlignment) *textTable {
 	w, h := len(row), len(col)
 	if col.equals(row) {
 		panic("columns can't be rows")
@@ -728,8 +889,10 @@ func (cells cellList) validTable(col, row cellList) *textTable {
 	}
 	fontsize := table.fontsize()
 	for i, cell := range cells {
-		y := col.getAlignedIndex(getYUr, fontsize*lineDepthR, cell)
-		x := row.getAlignedIndex(getXLl, fontsize*maxIntraReadingGapR, cell)
+		xya := alignmentMap[cell]
+		getX, getY := xya.x, xya.y
+		y := col.getAlignedIndex(getY, fontsize*lineDepthR, cell)
+		x := row.getAlignedIndex(getX, fontsize*maxIntraReadingGapR, cell)
 		if x < 0 || y < 0 {
 			if verboseTable {
 				common.Log.Error("bad element: x=%d y=%d cell=%s", x, y, cell.String())
@@ -748,6 +911,9 @@ func (cells cellList) validTable(col, row cellList) *textTable {
 		common.Log.Info("maxDense: w=%d h=%d", w, h)
 	}
 	if w < 0 {
+		return nil
+	}
+	if !table.isValid() {
 		return nil
 	}
 	return table.subTable(w, h)
@@ -827,8 +993,48 @@ func (cells cellList) count() int {
 	return n
 }
 
+func (cells cellList) validate() {
+	for i := 0; i < len(cells); i++ {
+		for j := i + 1; j < len(cells); j++ {
+			if cells[i] == cells[j] {
+				panic(fmt.Errorf("duplicate cell: i=%d j=%d %s", i, j, cells[i].String()))
+			}
+		}
+	}
+}
+
+// func (cells cellList) getAlignedIndexX(delta float64, targetCell *textPara) int {
+// 	for _, get := range gettersX {
+// 		for i, cell := range cells {
+// 			if parasAligned(get, delta, targetCell, cell) {
+// 				return i
+// 			}
+// 		}
+// 	}
+// 	return -1
+// }
+
+// // getAlignedIndexY returns the index in `cells` that is aligned with `targetCell` in the Y axis.
+// // nil is returned if no cell is aligned.
+// func (cells cellList) getAlignedIndexY(delta float64, targetCell *textPara) int {
+// 	for _, get := range gettersY {
+// 		for i, cell := range cells {
+// 			if parasAligned(get, delta, targetCell, cell) {
+// 				return i
+// 			}
+// 		}
+// 	}
+// 	return -1
+// }
+
 func (cells cellList) getAlignedIndex(get getter, delta float64, targetCell *textPara) int {
+	if targetCell == nil {
+		panic("no targetCell")
+	}
 	for i, cell := range cells {
+		if cell == nil {
+			panic("no cell")
+		}
 		if parasAligned(get, delta, targetCell, cell) {
 			return i
 		}
@@ -836,8 +1042,9 @@ func (cells cellList) getAlignedIndex(get getter, delta float64, targetCell *tex
 	return -1
 }
 
-func sortContents(get getter, reverse bool, cols []cellList) {
-	for _, cells := range cols {
+func sortContents(get getter, reverse bool, cols []*alignment) {
+	for _, alm := range cols {
+		cells := alm.cells
 		sort.Slice(cells, func(i, j int) bool {
 			ci, cj := cells[i], cells[j]
 			if reverse {
@@ -848,32 +1055,101 @@ func sortContents(get getter, reverse bool, cols []cellList) {
 	}
 }
 
+// alignment is a column.row candidate
+type alignment struct {
+	getCount map[reflect.Value]int // getter: number of cells matched by getter
+	cells    cellList              // cells
+}
+
+func newAlignment(cell *textPara) *alignment {
+	return &alignment{getCount: map[reflect.Value]int{}, cells: cellList{cell}}
+}
+
+func (col *alignment) String() string {
+	return col.cells.String()
+}
+
+// getter returns the getter used for the majority cell alignments.
+func (col *alignment) getter() getter {
+	var getters []reflect.Value
+	for getVal := range col.getCount {
+		getters = append(getters, getVal)
+	}
+	sort.Slice(getters, func(i, j int) bool {
+		ci := col.getCount[getters[i]]
+		cj := col.getCount[getters[i]]
+		return ci > cj
+	})
+	if len(getters) >= 2 && col.getCount[getters[0]] == col.getCount[getters[1]] {
+		panic(col)
+	}
+	getVal := getters[0]
+	return valueGetter[getVal]
+}
+
+// add adds a new cell and its alignment method to `col`.
+func (col *alignment) add(get getter, cell *textPara) {
+	col.getCount[reflect.ValueOf(get)]++
+	col.cells = append(col.cells, cell)
+	col.cells.validate()
+}
+
 // findGetterCandidates returns list of elements of `cells` that are within `delta` for attribute `get`.
-func (cells cellList) findGetterCandidates(get getter, deltaR float64, reverse bool) []cellList {
+func (cells cellList) findGetterCandidates(get getter, getters []getter, deltaR float64, reverse bool) []*alignment {
 	delta := cells.fontsize() * deltaR
-	xIndex := cells.makeIndex(getXLl)
-	var columns []cellList
-	addCol := func(col cellList) {
-		if len(col) > 1 {
+	index := cells.makeIndex(get)
+	var columns []*alignment
+	seen := map[string]bool{}
+	addCol := func(col *alignment) {
+		if len(col.cells) > 1 {
+			if verboseTable {
+				fmt.Printf("%8s-> %3d: %s\n", "", len(columns), col.String())
+			}
+			if _, ok := seen[col.String()]; ok {
+				panic(col.String())
+			}
+			seen[col.String()] = true
 			columns = append(columns, col)
 		}
 	}
-	for i0, idx0 := range xIndex[:len(xIndex)-1] {
-		cell0 := cells[idx0]
-		col := cellList{cell0}
-		for _, idx := range xIndex[i0+1:] {
-			cell := cells[idx]
-			if getXLl(cell) > get(cell0)+delta {
+	if verboseTable {
+		common.Log.Info("findGetterCandidates: %d", len(cells))
+	}
+	for i0 := 0; i0 < len(cells); i0++ {
+		cell0 := cells[index[i0]]
+		if verboseTable {
+			fmt.Printf("%4d: %s\n", i0, cell0)
+		}
+		col := newAlignment(cell0)
+		for i := i0 + 1; i < len(cells); i++ {
+			cell := cells[index[i]]
+			if verboseTable {
+				fmt.Printf("%8d: %s\n", i, cell)
+			}
+			if get(cell) < get(cell0) {
+				panic("order")
+			}
+			// if get(cell) > get(cell0)+delta {
+			// 	addCol(col)
+			// 	col = cellList{cell}
+			// } else if parasAligned2(getters, delta, cell0, cell) {
+			// 	col = append(col, cell)
+			// 	col.validate()
+			// }
+			// if parasAligned2(getters, delta, cell0, cell) {
+			get2 := parasAligned3(getters, delta, col.cells, cell)
+			if get2 != nil {
+				col.add(get2, cell)
+			} else {
 				addCol(col)
-				col = cellList{cell}
-			} else if parasAligned(get, delta, cell0, cell) {
-				col = append(col, cell)
+				col = newAlignment(cell)
+				break
 			}
 		}
 		addCol(col)
 	}
 	sort.Slice(columns, func(i, j int) bool {
-		ci, cj := columns[i], columns[j]
+		ci, cj := columns[i].cells, columns[j].cells
 		if len(ci) != len(cj) {
 			return len(ci) > len(cj)
 		}
@@ -883,6 +1159,47 @@ func (cells cellList) findGetterCandidates(get getter, deltaR float64, reverse b
 		return get(ci[0]) < get(cj[0])
 	})
 	return columns
+}
+
+type xyAlignment struct {
+	x, y getter
+}
+
+// makeAlignmentMap returns a map of cells to their x and y alignments in `cols` and `rows`.
+func makeAlignmentMap(cols, rows []*alignment) map[*textPara]xyAlignment {
+	// xa maps cell: aligned col
+	xa := map[*textPara]*alignment{}
+	for _, a := range cols {
+		for _, cell := range a.cells {
+			if b, ok := xa[cell]; ok {
+				if len(a.cells) <= len(b.cells) {
+					continue
+				}
+				panic(fmt.Errorf("2 alignments\n\tcell=%s\n\ta=%s\n\tb=%s",
+					cell.String(), a.String(), b.String()))
+			}
+			xa[cell] = a
+		}
+	}
+	ya := map[*textPara]*alignment{}
+	for _, a := range rows {
+		for _, cell := range a.cells {
+			if b, ok := ya[cell]; ok {
+				if len(a.cells) <= len(b.cells) {
+					continue
+				}
+				panic(cell)
+			}
+			ya[cell] = a
+		}
+	}
+	xya := map[*textPara]xyAlignment{}
+	for cell, col := range xa {
+		if row, ok := ya[cell]; ok {
+			xya[cell] = xyAlignment{x: col.getter(), y: row.getter()}
+		}
+	}
+	return xya
 }
 
 func (cells cellList) equals(other cellList) bool {
@@ -897,12 +1214,12 @@ func (cells cellList) equals(other cellList) bool {
 	return true
 }
 
-// makeIndex returns an indexes over cells on the `Llx` and `Ury `attributes.
-func (cells cellList) xyIndexes() ([]int, []int) {
-	xIndex := cells.makeIndex(getXLl)
-	yIndex := cells.makeIndex(getYUr)
-	return xIndex, yIndex
-}
+// // makeIndex returns an indexes over cells on the `Llx` and `Ury `attributes.
+// func (cells cellList) xyIndexes() ([]int, []int) {
+// 	xIndex := cells.makeIndex(_getXLl)
+// 	yIndex := cells.makeIndex(_getYUr)
+// 	return xIndex, yIndex
+// }
 
 // makeIndex returns an index over cells on the `get` attributes.
 func (cells cellList) makeIndex(get getter) []int {
@@ -922,18 +1239,31 @@ type getter func(*textPara) float64
 
 var (
 	// gettersX get the x-center, left and right of cells.
-	gettersX = []getter{getXCe, getXLl, getXUr}
+	gettersX = []getter{_getXCe, _getXLl, _getXUr}
 	// gettersX get the y-center, bottom and top of cells.
-	gettersY = []getter{getYCe, getYLl, getYUr}
+	gettersY = []getter{_getYCe, _getYLl, _getYUr}
+	// valueGetter is the reverse map reflect.ValueOf(get)] -> get
+	valueGetter = makeValueGetter()
 )
 
-func getXCe(para *textPara) float64 { return 0.5 * (para.Llx + para.Urx) }
-func getXLl(para *textPara) float64 { return para.Llx }
-func getXUr(para *textPara) float64 { return para.Urx }
-func getYCe(para *textPara) float64 { return 0.5 * (para.Lly + para.Ury) }
-func getYLl(para *textPara) float64 { return para.Lly }
-func getYUr(para *textPara) float64 { return para.Ury }
-func getTop(para *textPara) float64 { return -para.Ury }
+func makeValueGetter() map[reflect.Value]getter {
+	gettersAll := [][]getter{gettersX, gettersY}
+	valueGetter := map[reflect.Value]getter{}
+	for _, getters := range gettersAll {
+		for _, get := range getters {
+			valueGetter[reflect.ValueOf(get)] = get
+		}
+	}
+	return valueGetter
+}
+
+func _getXCe(para *textPara) float64 { return 0.5 * (para.Llx + para.Urx) }
+func _getXLl(para *textPara) float64 { return para.Llx }
+func _getXUr(para *textPara) float64 { return para.Urx }
+func _getYCe(para *textPara) float64 { return 0.5 * (para.Lly + para.Ury) }
+func _getYLl(para *textPara) float64 { return para.Lly }
+func _getYUr(para *textPara) float64 { return para.Ury }
+func _getTop(para *textPara) float64 { return -para.Ury }
 
 func (cells cellList) log(title string) {
 	paraList(cells).log(title)
@@ -982,6 +1312,11 @@ func (cells cellList) asStrings() []string {
 		if cell != nil {
 			parts[i] = truncate(cell.text(), 20)
 		}
+	}
+	if len(cells) > len(parts) {
+		cell := cells[len(cells)-1]
+		parts = append(parts, "...")
+		parts = append(parts, truncate(cell.text(), 20))
 	}
 	return parts
 }

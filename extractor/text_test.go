@@ -58,7 +58,7 @@ func init() {
 }
 
 // TestTextExtractionFragments tests text extraction on the PDF fragments in `fragmentTests`.
-func TestTextExtractionFragments(t *testing.T) {
+func _TestTextExtractionFragments(t *testing.T) {
 	fragmentTests := []struct {
 		name     string
 		contents string
@@ -147,7 +147,7 @@ func TestTextExtractionFragments(t *testing.T) {
 // TestTextExtractionFiles tests text extraction on a set of PDF files.
 // It checks for the existence of specified strings of words on specified pages.
 // We currently only check within lines as our line order is still improving.
-func TestTextExtractionFiles(t *testing.T) {
+func _TestTextExtractionFiles(t *testing.T) {
 	if len(corpusFolder) == 0 && !forceTest {
 		t.Log("Corpus folder not set - skipping")
 		return
@@ -159,7 +159,7 @@ func TestTextExtractionFiles(t *testing.T) {
 }
 
 // TestTextLocations tests locations of text marks.
-func TestTextLocations(t *testing.T) {
+func _TestTextLocations(t *testing.T) {
 	if len(corpusFolder) == 0 && !forceTest {
 		t.Log("Corpus folder not set - skipping")
 		return
@@ -172,7 +172,7 @@ func TestTextLocations(t *testing.T) {
 
 // TestTermMarksFiles stress tests testTermMarksMulti() by running it on all files in the corpus.
 // It can take several minutes to run.
-func TestTermMarksFiles(t *testing.T) {
+func _TestTermMarksFiles(t *testing.T) {
 	if !doStress {
 		t.Skip("skipping stress test")
 	}
@@ -318,7 +318,7 @@ func testExtractFileOptions(t *testing.T, filename string, pageTerms map[int][]s
 		t.Logf("%s not found", filepath)
 		return
 	}
-
+	common.Log.Notice("filepath=%q", filepath)
 	_, actualPageText := extractPageTexts(t, filepath, lazy)
 	for _, pageNum := range sortedKeys(pageTerms) {
 		expectedTerms, ok := pageTerms[pageNum]
@@ -779,6 +779,28 @@ func compareExtractedTextToReference(t *testing.T, filename string, pageNum int,
 	if actualText != expectedText {
 		common.Log.Info("actual   =====================\n%s\n=====================", actualText)
 		common.Log.Info("expected =====================\n%s\n=====================", expectedText)
+		common.Log.Info("actual=%d expected=%d", len(actualText), len(expectedText))
+		n := len(expectedText)
+		if len(actualText) < n {
+			n = len(actualText)
+		}
+		for i := 0; i < n; i++ {
+			if expectedText[i] != actualText[i] {
+				i0 := i - 10
+				i1 := i + 10
+				if i0 < 0 {
+					i0 = 0
+				}
+				if i1 > n {
+					i1 = n
+				}
+				common.Log.Info("i=%d", i)
+				common.Log.Info("expected=%q", expectedText[i0:i1])
+				common.Log.Info("  actual=%q", actualText[i0:i1])
+				break
+			}
+
+		}
 		t.Fatalf("Text mismatch filename=%q page=%d", filename, pageNum)
 	}
 }

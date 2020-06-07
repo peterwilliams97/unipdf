@@ -164,17 +164,13 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 func (paras paraList) writeText(w io.Writer) {
 	for ip, para := range paras {
 		para.writeText(w)
-		if ip != len(paras)-1 {
-			if sameLine(para, paras[ip+1]) {
-				w.Write([]byte(" "))
-			} else {
-				w.Write([]byte("\n"))
-				w.Write([]byte("\n"))
-			}
+		if ip != len(paras)-1 && sameLine(para, paras[ip+1]) {
+			w.Write([]byte(" "))
+		} else {
+			w.Write([]byte("\n"))
+			w.Write([]byte("\n"))
 		}
 	}
-	w.Write([]byte("\n"))
-	w.Write([]byte("\n"))
 }
 
 // toTextMarks creates the TextMarkArray corresponding to the extracted text created by
@@ -185,17 +181,13 @@ func (paras paraList) toTextMarks() []TextMark {
 	for ip, para := range paras {
 		paraMarks := para.toTextMarks(&offset)
 		marks = append(marks, paraMarks...)
-		if ip != len(paras)-1 {
-			if sameLine(para, paras[ip+1]) {
-				marks = appendSpaceMark(marks, &offset, " ")
-			} else {
-				marks = appendSpaceMark(marks, &offset, "\n")
-				marks = appendSpaceMark(marks, &offset, "\n")
-			}
+		if ip != len(paras)-1 && sameLine(para, paras[ip+1]) {
+			marks = appendSpaceMark(marks, &offset, " ")
+		} else {
+			marks = appendSpaceMark(marks, &offset, "\n")
+			marks = appendSpaceMark(marks, &offset, "\n")
 		}
 	}
-	marks = appendSpaceMark(marks, &offset, "\n")
-	marks = appendSpaceMark(marks, &offset, "\n")
 	return marks
 }
 

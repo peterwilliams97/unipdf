@@ -104,7 +104,7 @@ func (p *textPara) toTextMarks(offset *int) []TextMark {
 				marks = append(marks, cellMarks...)
 			}
 			if !(y == p.table.h-1 && x == p.table.w-1) {
-				marks = appendSpaceMark(marks, offset, " \n")
+				marks = appendSpaceMark(marks, offset, "\n")
 			}
 		}
 	}

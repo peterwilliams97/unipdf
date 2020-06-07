@@ -159,7 +159,7 @@ func _TestTextExtractionFiles(t *testing.T) {
 }
 
 // TestTextLocations tests locations of text marks.
-func _TestTextLocations(t *testing.T) {
+func TestTextLocations(t *testing.T) {
 	if len(corpusFolder) == 0 && !forceTest {
 		t.Log("Corpus folder not set - skipping")
 		return
@@ -786,8 +786,8 @@ func compareExtractedTextToReference(t *testing.T, filename string, pageNum int,
 		}
 		for i := 0; i < n; i++ {
 			if expectedText[i] != actualText[i] {
-				i0 := i - 10
-				i1 := i + 10
+				i0 := i - 40
+				i1 := i + 40
 				if i0 < 0 {
 					i0 = 0
 				}

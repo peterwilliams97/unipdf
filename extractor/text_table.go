@@ -26,7 +26,27 @@ func newTextTable(w, h int) *textTable {
 }
 
 func (t *textTable) String() string {
-	return fmt.Sprintf("[%dx%d] %6.2f", t.w, t.h, t.PdfRectangle)
+	return fmt.Sprintf("[%dx%d] %6.2f\n%s", t.w, t.h, t.PdfRectangle, t.text())
+}
+
+func (t *textTable) text() string {
+	rowText := func(y int) string {
+		texts := make([]string, t.w)
+		for x := 0; x < t.w; x++ {
+			cell := t.get(x, y)
+			if cell != nil {
+				text := fmt.Sprintf("%-20q", cell.text())
+				text = text[1 : len(text)-1]
+				texts[x] = truncate(text, 20)
+			}
+		}
+		return "\t" + strings.Join(texts, "| ")
+	}
+	texts := make([]string, t.h)
+	for y := 0; y < t.h; y++ {
+		texts[y] = rowText(y)
+	}
+	return strings.Join(texts, "\n")
 }
 
 func (t *textTable) bbox() model.PdfRectangle {
@@ -80,8 +100,72 @@ func (t *textTable) isValid() bool {
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
 			if cells[i].serial == cells[j].serial {
-				panic(fmt.Errorf("Table with repeated cell\n\ti=%d j=%d\n\tcell=%s\n\ttabble=%s",
-					i, j, cells[i], t))
+				// panic(fmt.Errorf("Table with repeated cell\n\ti=%d j=%d\n\tcell=%s\n\ttabble=%s",
+				// 	i, j, cells[i], t))
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (t *textTable) isTable() bool {
+	{
+		columns := make([]model.PdfRectangle, t.w)
+		for x := 0; x < t.w; x++ {
+			cell := t.get(x, 0)
+			// if cell == nil {
+			// 	continue
+			// }
+			col := cell.PdfRectangle
+			for y := 1; y < t.h; y++ {
+				cell := t.get(x, y)
+				if cell == nil {
+					continue
+				}
+				col = rectUnion(col, cell.PdfRectangle)
+			}
+			if col.Width() == 0 || col.Height() == 0 {
+				panic(t)
+			}
+			columns[x] = col
+		}
+		for x := 1; x < t.w; x++ {
+			if columns[x-1].Urx >= columns[x].Llx {
+				if verboseTable {
+					common.Log.Notice("Not at table X %.2f %.2f\n\t%s",
+						columns[x-1], columns[x], t.String())
+				}
+				if columns[x].Width() == 0 || columns[x].Height() == 0 {
+					panic(t)
+				}
+				return false
+			}
+		}
+	}
+
+	{
+		rows := make([]model.PdfRectangle, t.h)
+		for y := 0; y < t.h; y++ {
+			row := t.get(0, y).PdfRectangle
+			for x := 1; x < t.w; x++ {
+				cell := t.get(x, y)
+				if cell == nil {
+					continue
+				}
+				row = rectUnion(row, cell.PdfRectangle)
+			}
+			if row.Width() == 0 || row.Height() == 0 {
+				panic(t)
+			}
+			rows[y] = row
+		}
+		for y := 1; y < t.h; y++ {
+			if rows[y-1].Lly <= rows[y].Ury {
+				if verboseTable {
+					common.Log.Notice("Not at table Y %.2f %.2f\n\t%s",
+						rows[y-1], rows[y], t.String())
+				}
 				return false
 			}
 		}
@@ -366,7 +450,7 @@ func (cells cellList) aligned2x2X(delta float64) int {
 		panic(fmt.Errorf("cells=%d", len(cells)))
 	}
 	matches := 0
-	for _, basis := range gettersX {
+	for _, basis := range basesX {
 		if cells.aligned(basis, delta, 0, 2) && cells.aligned(basis, delta, 1, 3) {
 			matches++
 		}
@@ -380,7 +464,7 @@ func (cells cellList) aligned2x2Y(delta float64) int {
 		panic(fmt.Errorf("cells=%d", len(cells)))
 	}
 	matches := 0
-	for _, basis := range gettersY {
+	for _, basis := range basesY {
 		if cells.aligned(basis, delta, 0, 1) && cells.aligned(basis, delta, 2, 3) {
 			matches++
 		}
@@ -392,7 +476,7 @@ func (cells cellList) alignedY(delta float64) int {
 	worstMatches := 100
 	for i := 1; i < len(cells); i++ {
 		matches := 0
-		for _, basis := range gettersY {
+		for _, basis := range basesY {
 			if cells.aligned(basis, delta, i-1, i) {
 				matches++
 			}
@@ -405,7 +489,7 @@ func (cells cellList) alignedY(delta float64) int {
 }
 
 // aligned returns true if `cells` are aligned on attribute `basis` for indexes `i` and 'j`.
-func (cells cellList) aligned(basis getterIndex, delta float64, i, j int) bool {
+func (cells cellList) aligned(basis basisT, delta float64, i, j int) bool {
 	if !(0 <= i && i < len(cells) && 0 <= j && j < len(cells)) {
 		panic(fmt.Errorf("i=%d j=%d cells=%d", i, j, len(cells)))
 	}
@@ -413,21 +497,21 @@ func (cells cellList) aligned(basis getterIndex, delta float64, i, j int) bool {
 }
 
 // parasAligned returns true if `para1` and `para2` are aligned within `delta` for attribute `basis`.
-func parasAligned(basis getterIndex, delta float64, para1, para2 *textPara) bool {
+func parasAligned(basis basisT, delta float64, para1, para2 *textPara) bool {
 	if basis == getNil {
 		panic("no basis")
 	}
-	z1 := basis.get(para1)
-	z2 := basis.get(para2)
+	z1 := para1.at(basis)
+	z2 := para2.at(basis)
 	return math.Abs(z1-z2) <= delta
 }
 
 // parasAligned2 returns true if `para1` and `para2` are aligned within `delta` for any attribute in
-// `getters`.
-func parasAligned2(getters []getterIndex, delta float64, para1, para2 *textPara) bool {
-	for _, basis := range getters {
-		z1 := basis.get(para1)
-		z2 := basis.get(para2)
+// `bases`.
+func parasAligned2(bases []basisT, delta float64, para1, para2 *textPara) bool {
+	for _, basis := range bases {
+		z1 := para1.at(basis)
+		z2 := para2.at(basis)
 		if math.Abs(z1-z2) <= delta {
 			return true
 		}
@@ -436,8 +520,8 @@ func parasAligned2(getters []getterIndex, delta float64, para1, para2 *textPara)
 }
 
 // parasAligned2 returns true if `para1` and `para2` are aligned within `delta` for any attribute in
-// `getters`.
-func parasAligned3(getters []getterIndex, delta float64, cells cellList, cell *textPara) getterIndex {
+// `bases`.
+func parasAligned3(bases []basisT, delta float64, cells cellList, cell *textPara) basisT {
 	// cells2 := append(cells, cell)
 	cells2 := make(cellList, len(cells)+1)
 	copy(cells2, cells)
@@ -445,7 +529,7 @@ func parasAligned3(getters []getterIndex, delta float64, cells cellList, cell *t
 	// for i, c := range cells {
 
 	// }
-	for _, basis := range getters {
+	for _, basis := range bases {
 		if cells2.alignedGetter(basis, delta) {
 			return basis
 		}
@@ -454,7 +538,7 @@ func parasAligned3(getters []getterIndex, delta float64, cells cellList, cell *t
 }
 
 // parasAligned2 returns true if `para1` and `para2` are aligned within `delta` for any attribute in
-// `getters`.
+// `bases`.
 func parasAligned4(delta float64, getCells *alignment, cell *textPara) bool {
 	// cells2 := append(cells, c{{ell)
 	if len(getCells.cells) == 0 {
@@ -464,11 +548,11 @@ func parasAligned4(delta float64, getCells *alignment, cell *textPara) bool {
 	copy(cells2, getCells.cells)
 	cells2[len(getCells.cells)] = cell
 
-	basis := getCells.getter()
+	basis := getCells.basis()
 	return cells2.alignedGetter(basis, delta)
 }
 
-func (cells cellList) alignedGetter(basis getterIndex, delta float64) bool {
+func (cells cellList) alignedGetter(basis basisT, delta float64) bool {
 	if len(cells) == 0 {
 		return true
 	}
@@ -649,30 +733,30 @@ func (cells cellList) findTables() []*textTable {
 		common.Log.Info("findTables @@1: cells=%d", len(cells))
 		common.Log.Info("cols <- findAlignedCells(getXLl, maxIntraReadingGapR, false)")
 	}
-	cols := cells.findAlignedCells(getXLl, gettersX, maxIntraReadingGapR, false)
+	cols := cells.findAlignedCells(getXLl, basesX, maxIntraReadingGapR, false)
 	sortContents(getYUr, true, cols)
 
 	if verboseTable {
 		common.Log.Info("rows <- findAlignedCells(getYUr, lineDepthR, true)")
 	}
-	rows := cells.findAlignedCells(getYUr, gettersY, lineDepthR, true)
+	rows := cells.findAlignedCells(getYUr, basesY, lineDepthR, true)
 	sortContents(getXLl, false, rows)
 
 	if verboseTable {
 		common.Log.Info("findTables @@2a: rows=%d", len(rows))
 		for i, grow := range rows {
-			basis := grow.getter()
+			basis := grow.basis()
 			col := grow.cells
 			fmt.Printf("%4d: %6.2f %2d: %-80q %s\n", i, col.bbox(), len(col), truncate(col.text(), 78),
-				basisName[basis])
+				basis)
 			col.validate()
 		}
 		common.Log.Info("findTables @@2b: cols=%d", len(cols))
 		for i, gcol := range cols {
-			basis := gcol.getter()
+			basis := gcol.basis()
 			col := gcol.cells
 			fmt.Printf("%4d: %6.2f %2d: %-80q %s\n", i, col.bbox(), len(col), truncate(col.text(), 78),
-				basisName[basis])
+				basis)
 			col.validate()
 		}
 		common.Log.Info("findTables @@2: candidates cols=%d rows=%d", len(cols), len(rows))
@@ -684,10 +768,21 @@ func (cells cellList) findTables() []*textTable {
 	alignmentMap := makeAlignmentMap(cols, rows)
 
 	tables := cells.findTableCandidates(cols, rows, alignmentMap)
+	logTables(tables, "candidates")
+	{
+		var actualTables []*textTable
+		for _, table := range tables {
+			if table.isTable() {
+				actualTables = append(actualTables, table)
+			}
+		}
+		tables = actualTables
+	}
 	for _, table := range tables {
 		table.validate()
 	}
-	logTables(tables, "candidates")
+
+	logTables(tables, "actual")
 	tables = removeDuplicateTables((tables))
 	logTables(tables, "distinct")
 	return tables
@@ -807,7 +902,7 @@ func (cells cellList) findTableCandidates(cols, rows []*alignment,
 		// 	boundary, len(subset), subset.bbox(), table != nil)
 		if table != nil {
 			table.log("VALID!!")
-			table.validate()
+			// table.validate()
 			tables = append(tables, table)
 		}
 	}
@@ -1017,7 +1112,7 @@ func (cells cellList) validate() {
 }
 
 // func (cells cellList) getAlignedIndexX(delta float64, targetCell *textPara) int {
-// 	for _, get := range gettersX {
+// 	for _, get := range basesX {
 // 		for i, cell := range cells {
 // 			if parasAligned(get, delta, targetCell, cell) {
 // 				return i
@@ -1030,7 +1125,7 @@ func (cells cellList) validate() {
 // // getAlignedIndexY returns the index in `cells` that is aligned with `targetCell` in the Y axis.
 // // nil is returned if no cell is aligned.
 // func (cells cellList) getAlignedIndexY(delta float64, targetCell *textPara) int {
-// 	for _, get := range gettersY {
+// 	for _, get := range basesY {
 // 		for i, cell := range cells {
 // 			if parasAligned(get, delta, targetCell, cell) {
 // 				return i
@@ -1040,7 +1135,7 @@ func (cells cellList) validate() {
 // 	return -1
 // }
 
-func (cells cellList) getAlignedIndex(basis getterIndex, delta float64, targetCell *textPara) int {
+func (cells cellList) getAlignedIndex(basis basisT, delta float64, targetCell *textPara) int {
 	if targetCell == nil {
 		panic("no targetCell")
 	}
@@ -1055,21 +1150,21 @@ func (cells cellList) getAlignedIndex(basis getterIndex, delta float64, targetCe
 	return -1
 }
 
-func sortContents(basis getterIndex, reverse bool, cols []*alignment) {
+func sortContents(basis basisT, reverse bool, cols []*alignment) {
 	for _, alm := range cols {
 		cells := alm.cells
 		sort.Slice(cells, func(i, j int) bool {
 			ci, cj := cells[i], cells[j]
 			if reverse {
-				return basis.get(ci) > basis.get(cj)
+				return ci.at(basis) > cj.at(basis)
 			}
-			return basis.get(ci) < basis.get(cj)
+			return ci.at(basis) < cj.at(basis)
 		})
 	}
 }
 
 // findAlignedCells returns list of elements of `cells` that are within `delta` for attribute `basis`.
-func (cells cellList) findAlignedCells(basis getterIndex, getters []getterIndex, deltaR float64,
+func (cells cellList) findAlignedCells(basis basisT, bases []basisT, deltaR float64,
 	reverse bool) []*alignment {
 	delta := cells.fontsize() * deltaR
 	index := cells.makeIndex(basis)
@@ -1101,21 +1196,21 @@ func (cells cellList) findAlignedCells(basis getterIndex, getters []getterIndex,
 			if verboseTable {
 				fmt.Printf("%8d: %-80s", i, cell)
 			}
-			if !isZero(basis.get(cell)-basis.get(cell0)) && basis.get(cell) < basis.get(cell0) {
+			if !isZero(cell.at(basis)-cell0.at(basis)) && cell.at(basis) < cell0.at(basis) {
 				panic("order")
 			}
 			// if get(cell) > get(cell0)+delta {
 			// 	addCol(col)
 			// 	col = cellList{cell}
-			// } else if parasAligned2(getters, delta, cell0, cell) {
+			// } else if parasAligned2(bases, delta, cell0, cell) {
 			// 	col = append(col, cell)
 			// 	col.validate()
 			// }
-			// if parasAligned2(getters, delta, cell0, cell) {
-			basis2 := parasAligned3(getters, delta, col.cells, cell)
+			// if parasAligned2(bases, delta, cell0, cell) {
+			basis2 := parasAligned3(bases, delta, col.cells, cell)
 			if basis2 != getNil {
 				if verboseTable {
-					fmt.Printf("  %s\n", basisName[basis])
+					fmt.Printf("  %s\n", basis)
 				}
 				col.add(basis2, cell)
 			} else {
@@ -1135,9 +1230,9 @@ func (cells cellList) findAlignedCells(basis getterIndex, getters []getterIndex,
 			return len(ci) > len(cj)
 		}
 		if reverse {
-			return basis.get(ci[0]) > basis.get(cj[0])
+			return ci[0].at(basis) > cj[0].at(basis)
 		}
-		return basis.get(ci[0]) < basis.get(cj[0])
+		return ci[0].at(basis) < cj[0].at(basis)
 	})
 	return columns
 }
@@ -1162,15 +1257,15 @@ func (cells cellList) equals(other cellList) bool {
 // }
 
 // makeIndex returns an index over cells on the `basis` attributes.
-func (cells cellList) makeIndex(basis getterIndex) []int {
+func (cells cellList) makeIndex(basis basisT) []int {
 	index := make([]int, len(cells))
 	for i := range cells {
 		index[i] = i
 	}
 	sort.Slice(index, func(i, j int) bool {
 		ci, cj := cells[index[i]], cells[index[j]]
-		zi := basis.get(ci)
-		zj := basis.get(cj)
+		zi := ci.at(basis)
+		zj := cj.at(basis)
 		if !isZero(zi - zj) {
 			return zi < zj
 		}
@@ -1244,7 +1339,7 @@ func (cells cellList) asStrings() []string {
 }
 
 type xyAlignment struct {
-	x, y getterIndex
+	x, y basisT
 }
 
 // makeAlignmentMap returns a map of cells to their x and y alignments in `cols` and `rows`.
@@ -1277,14 +1372,14 @@ func makeAlignmentMap(cols, rows []*alignment) map[*textPara]xyAlignment {
 	}
 	xya := map[*textPara]xyAlignment{}
 	for cell, col := range xa {
-		if col.getter() == getNil {
+		if col.basis() == getNil {
 			panic("col.getter")
 		}
 		if row, ok := ya[cell]; ok {
-			if row.getter() == getNil {
+			if row.basis() == getNil {
 				panic("row.getter")
 			}
-			xya[cell] = xyAlignment{x: col.getter(), y: row.getter()}
+			xya[cell] = xyAlignment{x: col.basis(), y: row.basis()}
 		}
 	}
 	return xya
@@ -1292,26 +1387,26 @@ func makeAlignmentMap(cols, rows []*alignment) map[*textPara]xyAlignment {
 
 // alignment is a column.row candidate
 type alignment struct {
-	getCount map[getterIndex]int // getter: number of cells matched by getter
-	cells    cellList            // cells
+	getCount map[basisT]int // getter: number of cells matched by getter
+	cells    cellList       // cells
 }
 
 func newAlignment(cell *textPara) *alignment {
-	return &alignment{getCount: map[getterIndex]int{}, cells: cellList{cell}}
+	return &alignment{getCount: map[basisT]int{}, cells: cellList{cell}}
 }
 
 func (col *alignment) String() string {
-	return col.cells.String()
+	return fmt.Sprintf("%s : %s", col.cells.String(), col.basis().String())
 }
 
-// getter returns the getter used for the majority cell alignments.
-func (col *alignment) getter() getterIndex {
-	var getters []getterIndex
-	for getVal := range col.getCount {
-		getters = append(getters, getVal)
+// basis returns the basis used for the majority cell alignments.
+func (col *alignment) basis() basisT {
+	var bases []basisT
+	for basis := range col.getCount {
+		bases = append(bases, basis)
 	}
-	sort.Slice(getters, func(i, j int) bool {
-		gi, gj := getters[i], getters[j]
+	sort.Slice(bases, func(i, j int) bool {
+		gi, gj := bases[i], bases[j]
 		ci := col.getCount[gi]
 		cj := col.getCount[gj]
 		if ci != cj {
@@ -1319,46 +1414,49 @@ func (col *alignment) getter() getterIndex {
 		}
 		return gi < gj
 	})
-	// if len(getters) >= 2 && col.getCount[getters[0]] == col.getCount[getters[1]] {
-	// 	a, b := getters[0], getters[1]
+	// if len(bases) >= 2 && col.getCount[bases[0]] == col.getCount[bases[1]] {
+	// 	a, b := bases[0], bases[1]
 	// 	panic(fmt.Errorf("Ambiguous getter. %s:%d, %s:%d",
 	// 		a.String(), col.getCount[a],
 	// 		b.String(), col.getCount[b]))
 	// }
-	basis := getters[0]
-	return basis
+	return bases[0]
 }
 
 // add adds a new cell and its alignment method to `col`.
-func (col *alignment) add(basis getterIndex, cell *textPara) {
+func (col *alignment) add(basis basisT, cell *textPara) {
 	col.getCount[basis]++
 	col.cells = append(col.cells, cell)
 	col.cells.validate()
 }
 
-type _getter func(*textPara) float64
-type getterIndex int
+func (cell *textPara) at(basis basisT) float64 {
+	return basis._get(cell)
+}
 
-func (basis getterIndex) String() string {
-	name, ok := basisName[basis]
+type _getter func(*textPara) float64
+type basisT int
+
+func (basis basisT) String() string {
+	name, ok := _basisName[basis]
 	if !ok {
 		return fmt.Sprintf("unkown basis %d", basis)
 	}
 	return name
 }
 
-func (basis getterIndex) get(cell *textPara) float64 {
-	get := basisGetter[basis]
+func (basis basisT) _get(cell *textPara) float64 {
+	get := _basisGetter[basis]
 	return get(cell)
 }
 
 var (
-	// gettersX get the x-center, left and right of cells.
-	gettersX = []getterIndex{getXCe, getXLl, getXUr}
-	// gettersX get the y-center, bottom and top of cells.
-	gettersY = []getterIndex{getYCe, getYLl, getYUr}
+	// basesX get the x-center, left and right of cells.
+	basesX = []basisT{getXCe, getXLl, getXUr}
+	// basesY get the y-center, bottom and top of cells.
+	basesY = []basisT{getYCe, getYLl, getYUr}
 	// valueGetter is the reverse map reflect.ValueOf(get)] -> get
-	basisGetter = map[getterIndex]_getter{
+	_basisGetter = map[basisT]_getter{
 		getXLl: _getXLl,
 		getXCe: _getXCe,
 		getXUr: _getXUr,
@@ -1366,7 +1464,7 @@ var (
 		getYCe: _getYCe,
 		getYUr: _getYUr,
 	}
-	basisName = map[getterIndex]string{
+	_basisName = map[basisT]string{
 		getXLl: "getXLl",
 		getXCe: "getXCe",
 		getXUr: "getXUr",
@@ -1376,11 +1474,11 @@ var (
 	}
 )
 
-// func makeValueGetter() map[getterIndex]getter {
-// 	gettersAll := [][]getter{gettersX, gettersY}
+// func makeValueGetter() map[basisT]getter {
+// 	gettersAll := [][]getter{basesX, basesY}
 // 	valueGetter := map[reflect.Value]getter{}
-// 	for _, getters := range gettersAll {
-// 		for _, get := range getters {
+// 	for _, bases := range gettersAll {
+// 		for _, get := range bases {
 // 			valueGetter[reflect.ValueOf(get)] = get
 // 		}
 // 	}
@@ -1388,7 +1486,7 @@ var (
 // }
 
 const (
-	getNil getterIndex = iota
+	getNil basisT = iota
 	getXLl
 	getXCe
 	getXUr

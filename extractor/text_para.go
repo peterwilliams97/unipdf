@@ -80,9 +80,9 @@ func (p *textPara) writeText(w io.Writer) {
 			} else {
 				cell.writeCellText(w)
 			}
-			if !(y == p.table.h-1 && x == p.table.w-1) {
-				w.Write([]byte("\n"))
-			}
+			// if !(y == p.table.h-1 && x == p.table.w-1) {
+			w.Write([]byte("\n"))
+			// }
 		}
 	}
 }
@@ -103,9 +103,9 @@ func (p *textPara) toTextMarks(offset *int) []TextMark {
 				cellMarks := cell.toCellTextMarks(offset)
 				marks = append(marks, cellMarks...)
 			}
-			if !(y == p.table.h-1 && x == p.table.w-1) {
-				marks = appendSpaceMark(marks, offset, "\n")
-			}
+			// if !(y == p.table.h-1 && x == p.table.w-1) {
+			marks = appendSpaceMark(marks, offset, "\n")
+			// }
 		}
 	}
 	return marks

@@ -58,7 +58,7 @@ func init() {
 }
 
 // TestTextExtractionFragments tests text extraction on the PDF fragments in `fragmentTests`.
-func _TestTextExtractionFragments(t *testing.T) {
+func TestTextExtractionFragments(t *testing.T) {
 	fragmentTests := []struct {
 		name     string
 		contents string
@@ -147,7 +147,7 @@ func _TestTextExtractionFragments(t *testing.T) {
 // TestTextExtractionFiles tests text extraction on a set of PDF files.
 // It checks for the existence of specified strings of words on specified pages.
 // We currently only check within lines as our line order is still improving.
-func _TestTextExtractionFiles(t *testing.T) {
+func TestTextExtractionFiles(t *testing.T) {
 	if len(corpusFolder) == 0 && !forceTest {
 		t.Log("Corpus folder not set - skipping")
 		return
@@ -172,7 +172,7 @@ func TestTextLocations(t *testing.T) {
 
 // TestTermMarksFiles stress tests testTermMarksMulti() by running it on all files in the corpus.
 // It can take several minutes to run.
-func _TestTermMarksFiles(t *testing.T) {
+func TestTermMarksFiles(t *testing.T) {
 	if !doStress {
 		t.Skip("skipping stress test")
 	}
@@ -721,6 +721,7 @@ var extractReferenceTests = []extractReference{
 	extractReference{"eu.pdf", 5},
 	extractReference{"we-dms.pdf", 1},
 	extractReference{"Productivity.pdf", 1},
+	extractReference{"radar-eng.pdf", 2},
 }
 
 // extractReference describes a PDF file and page number.
@@ -751,25 +752,28 @@ func (er extractReference) textPath() string {
 func compareExtractedTextToReference(t *testing.T, filename string, pageNum int, textPath string) {
 	f, err := os.Open(filename)
 	if err != nil {
-		common.Log.Info("Couldn't open. skipping. filename=%q err=%v", filename, err)
-		return
+		if !forceTest {
+			common.Log.Info("Couldn't open. skipping. filename=%q err=%v", filename, err)
+			return
+		}
+		t.Fatalf("Couldn't open. skipping. filename=%q err=%v", filename, err)
 	}
 	defer f.Close()
 	pdfReader, err := openPdfReader(f, true)
 	if err != nil {
-		common.Log.Info("openPdfReader failed. skipping. filename=%q err=%v", filename, err)
-		return
+		t.Fatalf("openPdfReader failed. skipping. filename=%q err=%v", filename, err)
+
 	}
 	expectedText, err := readTextFile(textPath)
 	if err != nil {
-		common.Log.Info("readTextFile failed. skipping. textPath=%q err=%v", textPath, err)
+		t.Fatalf("readTextFile failed. skipping. textPath=%q err=%v", textPath, err)
 		return
 	}
 
 	desc := fmt.Sprintf("filename=%q pageNum=%d", filename, pageNum)
 	page, err := pdfReader.GetPage(pageNum)
 	if err != nil {
-		common.Log.Info("GetPage failed. skipping. %s err=%v", desc, err)
+		t.Fatalf("GetPage failed. skipping. %s err=%v", desc, err)
 		return
 	}
 	actualText, _ := pageTextAndMarks(t, desc, page)

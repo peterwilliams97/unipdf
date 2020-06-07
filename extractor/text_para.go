@@ -48,7 +48,7 @@ func (p *textPara) String() string {
 	if p.table != nil {
 		table = fmt.Sprintf("[%dx%d] ", p.table.w, p.table.h)
 	}
-	return fmt.Sprintf("serial=%d %6.2f %s%d lines %q",
+	return fmt.Sprintf("serial=%2d %6.2f %s%2d lines %q",
 		p.serial, p.PdfRectangle, table, len(p.lines), truncate(p.text(), 50))
 }
 

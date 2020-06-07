@@ -32,9 +32,9 @@ func (serial *serialState) reset() {
 
 // TOL is the tolerance for coordinates to be consideted equal. It is big enough to cover all
 // rounding errors and small enough that TOL point differences on a page aren't visible.
-const TOL = 1.0e-6
+const TOL = 1.0e-8
 
-// isZero returns true if x is with TOL of 0.0
+// isZero returns true if x is within TOL of 0.0
 func isZero(x float64) bool {
 	return math.Abs(x) < TOL
 }

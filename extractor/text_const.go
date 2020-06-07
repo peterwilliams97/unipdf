@@ -13,7 +13,7 @@ const (
 	verbosePara     = false
 	verboseParaLine = verbosePara && false
 	verboseParaWord = verboseParaLine && false
-	verboseTable    = false
+	verboseTable    = true
 )
 
 // The following constants control the approaches used in the code.

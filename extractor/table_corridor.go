@@ -84,20 +84,8 @@ func (cells cellList) findCorridors() ([]corridor, []corridor) {
 		ci, cj := yCorridors[i].cells, yCorridors[j].cells
 		return len(ci) > len(cj)
 	})
-	uniques := []corridor{yCorridors[0]}
-	for _, corr := range yCorridors[1:] {
-		duplicate := false
-		for _, u := range uniques {
-			if u.contains(corr) {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			uniques = append(uniques, corr)
-		}
-	}
-	yCorridors = uniques
+
+	yCorridors = uniqueCorridors(yCorridors)
 
 	common.Log.Info("findCorridors:Done:yCorridors")
 	for i, corr := range yCorridors {
@@ -107,21 +95,6 @@ func (cells cellList) findCorridors() ([]corridor, []corridor) {
 		}
 	}
 	return yCorridors, nil
-}
-
-func (corr corridor) contains(other corridor) bool {
-	for i, cell := range corr.cells[:len(corr.cells)-len(other.cells)+1] {
-		if other.cells[0] != cell {
-			continue
-		}
-		for j, o := range other.cells {
-			if o != corr.cells[i+j] {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 // corridorY returns the longest y corridor  below `cell0`.
@@ -137,10 +110,9 @@ func (cp cellPartition) corridorY(cell0 *textPara, pageSize model.PdfRectangle) 
 		fmt.Printf("%4d >> %s\n", i, cell)
 	}
 	y := cell0.Ury
-	candidates := cp.below(y).sorted(getLlx).reversed().sorted(getUry).reversed()
-	// for i, cell := range candidates {
-	// 	fmt.Printf("%4d ** %s\n", i, cell)
-	// }
+	// candidates := cp.below(y).sorted(getLlx).reversed().sorted(getUry).reversed()
+	candidates := cp.below(y).tableSorted()
+
 	var cells cellList
 	bbox := model.PdfRectangle{
 		Llx: pageSize.Llx,
@@ -157,8 +129,8 @@ func (cp cellPartition) corridorY(cell0 *textPara, pageSize model.PdfRectangle) 
 			continue
 		}
 
-		immediateLeft := sameRow.intersection(leftCells)
-		immediateRight := sameRow.intersection(rightCells)
+		immediateLeft := sameRow.intersect(leftCells)
+		immediateRight := sameRow.intersect(rightCells)
 		llxE := immediateLeft.max(getUrx, bbox.Llx)
 		urxE := immediateRight.min(getLlx, bbox.Urx)
 		llx = math.Min(llx, cell.Llx)
@@ -204,7 +176,7 @@ func (cells cellList) newCellPartition() cellPartition {
 func (cp cellPartition) yOverlapped(cell *textPara) cellSet {
 	aboveOrEqual := cp.baseOrder[getUry].ge(cell.Lly)
 	belowOrEqual := cp.baseOrder[getLly].le(cell.Ury)
-	return aboveOrEqual.intersection(belowOrEqual)
+	return aboveOrEqual.intersect(belowOrEqual)
 }
 
 // below returns a set of cells: cell.ury <= y
@@ -227,97 +199,6 @@ func (cp cellPartition) rightOf(x float64) cellSet {
 	return cp.baseOrder[getLlx].ge(x)
 }
 
-func (s cellSet) subtract(other cellSet) cellSet {
-	i := cellSet{}
-	for cell := range s {
-		if _, ok := other[cell]; !ok {
-			i[cell] = true
-		}
-	}
-	return i
-}
-
-// cellsIntersection returns intersection of s1 and s2
-func (s cellSet) intersection(other cellSet) cellSet {
-	i := cellSet{}
-	for cell := range s {
-		if _, ok := other[cell]; ok {
-			i[cell] = true
-		}
-	}
-	return i
-}
-
-func (s cellSet) cellList() cellList {
-	cells := make(cellList, len(s))
-	i := 0
-	for cell := range s {
-		cells[i] = cell
-		i++
-	}
-	return cells
-}
-
-func (s cellSet) sorted(basis basisT) cellList {
-	return s.cellList().sorted(basis)
-}
-
-func (s cellSet) sortedTable() cellList {
-	cells := s.cellList()
-	sort.Slice(cells,
-		func(i, j int) bool {
-			ci, cj := cells[i], cells[j]
-			if ci.Ury != cj.Ury {
-				return ci.Ury > cj.Ury
-			}
-			return ci.Lly < cj.Llx
-		})
-	return cells
-}
-
-func (cells cellList) sorted(basis basisT) cellList {
-	cells.sort(basis)
-	return cells
-}
-func (cells cellList) sort(basis basisT) {
-	sort.SliceStable(cells,
-		func(i, j int) bool { return cells[i].at(basis) < cells[j].at(basis) })
-}
-
-func (cells cellList) reversed() cellList {
-	n := len(cells)
-	rev := make(cellList, n)
-	for i, cell := range cells {
-		rev[n-1-i] = cell
-	}
-	return rev
-}
-
-func (cells cellList) set() cellSet {
-	s := make(cellSet, len(cells))
-	for _, cell := range cells {
-		s[cell] = true
-	}
-	return s
-}
-
-func (s cellSet) min(basis basisT, defVal float64) float64 {
-	z := defVal
-	for cell := range s {
-		z = math.Min(z, cell.at(basis))
-	}
-	return z
-}
-
-func (s cellSet) max(basis basisT, defVal float64) float64 {
-	z := defVal
-	for cell := range s {
-		z = math.Max(z, cell.at(basis))
-	}
-	return z
-}
-
-type cellSet map[*textPara]bool
 type ordering struct {
 	posCells map[float64]cellList
 	forward  []float64
@@ -369,4 +250,139 @@ func (o ordering) ge(z float64) cellSet {
 		}
 	}
 	return cells
+}
+
+func uniqueCorridors(corridors []corridor) []corridor {
+	if len(corridors) <= 1 {
+		return corridors
+	}
+	uniques := []corridor{corridors[0]}
+	for _, corr := range corridors[1:] {
+		duplicate := false
+		for _, u := range uniques {
+			if u.contains(corr) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			uniques = append(uniques, corr)
+		}
+	}
+	return uniques
+}
+
+func (corr corridor) contains(other corridor) bool {
+	for i, cell := range corr.cells[:len(corr.cells)-len(other.cells)+1] {
+		if other.cells[0] != cell {
+			continue
+		}
+		for j, o := range other.cells {
+			if o != corr.cells[i+j] {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+type cellSet map[*textPara]bool
+
+// subtract returns the elements of `set` not in `other`.
+func (set cellSet) subtract(other cellSet) cellSet {
+	out := cellSet{}
+	for cell := range set {
+		if _, ok := other[cell]; !ok {
+			out[cell] = true
+		}
+	}
+	return out
+}
+
+// intersect returns the intersection of `set` and `other`.
+func (set cellSet) intersect(other cellSet) cellSet {
+	out := cellSet{}
+	for cell := range set {
+		if _, ok := other[cell]; ok {
+			out[cell] = true
+		}
+	}
+	return out
+}
+
+// cellList returns `set` as cellList.
+func (set cellSet) cellList() cellList {
+	cells := make(cellList, len(set))
+	i := 0
+	for cell := range set {
+		cells[i] = cell
+		i++
+	}
+	return cells
+}
+
+// // tableSorted returns set sorted by `basis`
+func (set cellSet) sorted(basis basisT) cellList {
+	return set.cellList().sorted(basis)
+}
+
+// tableSorted returns set sorted for table discovery.
+func (set cellSet) tableSorted() cellList {
+	cells := set.cellList()
+	sort.Slice(cells,
+		func(i, j int) bool {
+			ci, cj := cells[i], cells[j]
+			if ci.Ury != cj.Ury {
+				return ci.Ury > cj.Ury
+			}
+			return ci.Lly < cj.Llx
+		})
+	return cells
+}
+
+// min returns the smaller of `defVal` and the minimum value of `set` at `basis`.
+func (set cellSet) min(basis basisT, defVal float64) float64 {
+	z := defVal
+	for cell := range set {
+		z = math.Min(z, cell.at(basis))
+	}
+	return z
+}
+
+// max returns the larger of `defVal` and the maximum value of `set` at `basis`.
+func (set cellSet) max(basis basisT, defVal float64) float64 {
+	z := defVal
+	for cell := range set {
+		z = math.Max(z, cell.at(basis))
+	}
+	return z
+}
+
+func (cells cellList) sorted(basis basisT) cellList {
+	dup := make(cellList, len(cells))
+	copy(dup, cells)
+	dup.sort(basis)
+	return dup
+}
+
+func (cells cellList) sort(basis basisT) {
+	sort.SliceStable(cells, func(i, j int) bool { return cells[i].at(basis) < cells[j].at(basis) })
+}
+
+func (cells cellList) reversed() cellList {
+	n := len(cells)
+	rev := make(cellList, n)
+	for i, cell := range cells {
+		rev[n-1-i] = cell
+	}
+	return rev
+}
+
+func (cells cellList) set() cellSet {
+	set := make(cellSet, len(cells))
+	for _, cell := range cells {
+		set[cell] = true
+	}
+	return set
 }

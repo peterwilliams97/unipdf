@@ -70,8 +70,8 @@ func (cells cellList) findCorridors() ([]corridor, []corridor) {
 		// 	continue
 		// }
 
-		corr := cp.corridorY(cell, model.PdfRectangle{Ury: 800, Urx: 600})
-		if len(corr.cells) < 3 {
+		corr := cp.corridorX(cell, model.PdfRectangle{Ury: 800, Urx: 600})
+		if len(corr.cells) < 2 {
 			continue
 		}
 		yCorridors = append(yCorridors, corr)
@@ -97,6 +97,63 @@ func (cells cellList) findCorridors() ([]corridor, []corridor) {
 	return yCorridors, nil
 }
 
+// corridorX returns the longest x corridor to the right of `cell0`.
+func (cp cellPartition) corridorX(cell0 *textPara, pageSize model.PdfRectangle) corridor {
+	lly, ury := cell0.Lly, cell0.Ury
+	aboveCells := cp.above(ury)
+	belowCells := cp.below(lly)
+	common.Log.Info("cell0=%s", cell0)
+	for i, cell := range aboveCells.sorted(getLlx) {
+		fmt.Printf("%4d << %s\n", i, cell)
+	}
+	for i, cell := range belowCells.sorted(getLlx) {
+		fmt.Printf("%4d >> %s\n", i, cell)
+	}
+	x := cell0.Llx
+	// candidates := cp.below(y).sorted(getLlx).reversed().sorted(getUry).reversed()
+	candidates := cp.rightOf(x).tableSorted()
+
+	var cells cellList
+	bbox := model.PdfRectangle{
+		Lly: pageSize.Lly,
+		Ury: pageSize.Ury,
+		Llx: x}
+
+	for i, cell := range candidates {
+		sameColumn := cp.xOverlapped(cell)
+		corrCells := sameColumn.subtract(aboveCells).subtract(belowCells)
+		if len(corrCells) == 0 {
+			continue
+		}
+		if _, ok := corrCells[cell]; !ok {
+			continue
+		}
+
+		immediateAbove := sameColumn.intersect(aboveCells)
+		immediateBelow := sameColumn.intersect(belowCells)
+		llyE := immediateBelow.max(getUry, bbox.Lly)
+		uryE := immediateAbove.min(getLly, bbox.Ury)
+		lly = math.Min(lly, cell.Lly)
+		ury = math.Max(ury, cell.Ury)
+		fmt.Printf("%4d ** %d-%d-%d=%d %s\n", i,
+			len(sameColumn), len(aboveCells), len(belowCells), len(corrCells), cell)
+		fmt.Printf("%4s ~~   sameRow=%d %s\n", "", len(sameColumn), sameColumn.sorted(getLlx))
+		fmt.Printf("%4s ~~ corrCells=%d %s\n", "", len(corrCells), corrCells.sorted(getLlx))
+		fmt.Printf("%4s -- inner=%6.2f-%6.2f outer=%6.2f-%6.2f\n", "", lly, ury, llyE, uryE)
+		if !(llyE <= lly && ury <= uryE) {
+			break
+		}
+		bbox.Lly = llyE
+		bbox.Ury = uryE
+		bbox.Urx = cell.Urx
+		cells = append(cells, cell)
+		belowCells = cp.below(lly)
+		aboveCells = cp.above(ury)
+		fmt.Printf("%4s -- cells=%d %s\n", "", len(cells), cells)
+	}
+	return corridor{PdfRectangle: bbox, cells: cells}
+}
+
 // corridorY returns the longest y corridor  below `cell0`.
 func (cp cellPartition) corridorY(cell0 *textPara, pageSize model.PdfRectangle) corridor {
 	llx, urx := cell0.Llx, cell0.Urx
@@ -116,7 +173,7 @@ func (cp cellPartition) corridorY(cell0 *textPara, pageSize model.PdfRectangle) 
 	var cells cellList
 	bbox := model.PdfRectangle{
 		Llx: pageSize.Llx,
-		Urx: pageSize.Ury,
+		Urx: pageSize.Urx,
 		Ury: y}
 
 	for i, cell := range candidates {
@@ -170,6 +227,13 @@ func (cells cellList) newCellPartition() cellPartition {
 		baseOrder[basis] = cells.newOrdering(basis)
 	}
 	return cellPartition{baseOrder: baseOrder, allCells: cells.set()}
+}
+
+// xOverlapped returns the cells in that overlap `cell` in the x direction.
+func (cp cellPartition) xOverlapped(cell *textPara) cellSet {
+	leftOrEqual := cp.baseOrder[getLlx].le(cell.Urx)
+	rightOrEqual := cp.baseOrder[getUrx].ge(cell.Llx)
+	return leftOrEqual.intersect(rightOrEqual)
 }
 
 // yOverlapped returns the cells in that overlap `cell` in the y direction.
@@ -336,7 +400,20 @@ func (set cellSet) tableSorted() cellList {
 			if ci.Ury != cj.Ury {
 				return ci.Ury > cj.Ury
 			}
-			return ci.Lly < cj.Llx
+			return ci.Llx < cj.Llx
+		})
+	return cells
+}
+
+func (set cellSet) tableSortedX() cellList {
+	cells := set.cellList()
+	sort.Slice(cells,
+		func(i, j int) bool {
+			ci, cj := cells[i], cells[j]
+			if ci.Llx != cj.Llx {
+				return ci.Llx < cj.Llx
+			}
+			return ci.Ury > cj.Ury
 		})
 	return cells
 }

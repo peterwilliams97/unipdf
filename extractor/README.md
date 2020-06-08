@@ -113,3 +113,58 @@ Computation time
       Find columns that start at row -> table candiates
    Sort table candidates by w x h descending
 4. Test each candidate O(N^4)
+
+
+Corridors
+---------
+N x 1 and 1 x N rectangles that contain cells and are not overlapped by any other cellls.
+These are the columns and rows in tables
+
+llx   urx
+ |  x  |   x    x      x     x     x
+ |     |
+ |  x  |
+ |  x  |   x
+ |  x  |
+ |  x  |   x           x
+ |  x  |
+ |  x  |
+
+ury --------------------------------
+    x     x    x      x     x     x
+lly ---------------------------------
+    x
+    x     x
+    x
+    x     x           x
+    x
+    x
+
+corridorX(cell0):
+   llx, urx := cell0.lly, cell0.urx
+   Ellx, EUrx := +∞ , -∞
+   leftCells := {cells: cell.urx <= llx}
+   rightCells :=  {cells: cell.llx >= urx}
+   y := cell0.ury
+   find candidates := {cells: cell.ury <= y sorted by cell.ury descreasing}
+   for cell1 in candidates:
+      Ellx := min(Ellx, max(cell.urx of left cells that y overlap cell1))
+      Eurx := max(Eurx, min(cell.llx of right cells that y overlap cell1))
+      llx := min(llx, cell1.llx)
+      urx := max(urx, cell1.urx)
+      if Ellx > llx or Eurx < urx: break
+
+type cellSet map[cell]bool
+
+// cells.below returns a set of cells: cell.ury <= y
+func cells.below(y float64]) cellSet
+// cells.above returns a set of cells: cell.lly >= y
+func cells.above(y float64]) cellSet
+
+// cells.left returns a set of cells: cell.urx <= x
+func cells.left(x float64]) cellSet
+// cells.right returns a set of cells: cell.llx >= x
+func cells.right(x float64]) cellSet
+
+// cellsIntersection returns intersection of s1 and s2
+func cellSet.untersection(s2 cellSet) cellSet

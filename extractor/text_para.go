@@ -280,6 +280,78 @@ func (strata *textStrata) composePara() *textPara {
 	return para
 }
 
+// at returns the location of `cell` at  `basis`
+func (cell *textPara) at(basis basisT) float64 {
+	get := _basisGetter[basis]
+	return get(cell)
+}
+
+// basisT is a the end or center of a rectangle in the X or Y direction
+type basisT int
+
+const (
+	getNil basisT = iota
+	getLlx        // left
+	getXCe        // x center
+	getUrx        // right
+	getUry        // top
+	getYCe        // y center
+	getLly        // bottom
+)
+
+func (basis basisT) String() string {
+	name, ok := _basisName[basis]
+	if !ok {
+		return fmt.Sprintf("unknown basis %d", basis)
+	}
+	return name
+}
+
+type _getter func(*textPara) float64
+
+var (
+	// basesX get the x-center, left and right of cells.
+	basesX = []basisT{getXCe, getLlx, getUrx}
+	// basesY get the y-center, bottom and top of cells.
+	basesY = []basisT{getUry, getYCe, getLly}
+	// valueGetter is the reverse map reflect.ValueOf(get)] -> get
+	_basisGetter = map[basisT]_getter{
+		getLlx: _getLLx,
+		getXCe: _getXCe,
+		getUrx: _getUrx,
+		getUry: _getUry,
+		getYCe: _getYCe,
+		getLly: _getLly,
+	}
+	_basisName = map[basisT]string{
+		getLlx: "getLlx",
+		getXCe: "getXCe",
+		getUrx: "getUrx",
+		getUry: "getUry",
+		getYCe: "getYCe",
+		getLly: "getLly",
+	}
+)
+
+// func makeValueGetter() map[basisT]getter {
+// 	gettersAll := [][]getter{basesX, basesY}
+// 	valueGetter := map[reflect.Value]getter{}
+// 	for _, bases := range gettersAll {
+// 		for _, get := range bases {
+// 			valueGetter[reflect.ValueOf(get)] = get
+// 		}
+// 	}
+// 	return valueGetter
+// }
+
+func _getXCe(para *textPara) float64 { return 0.5 * (para.Llx + para.Urx) }
+func _getLLx(para *textPara) float64 { return para.Llx }
+func _getUrx(para *textPara) float64 { return para.Urx }
+func _getYCe(para *textPara) float64 { return 0.5 * (para.Lly + para.Ury) }
+func _getLly(para *textPara) float64 { return para.Lly }
+func _getUry(para *textPara) float64 { return para.Ury }
+func _getTop(para *textPara) float64 { return -para.Ury }
+
 func (para *textPara) log(title string) {
 	if !verbosePara {
 		return

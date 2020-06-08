@@ -109,6 +109,9 @@ func (t *textTable) isValid() bool {
 	return true
 }
 
+// isTable returns true if
+//   - the cells in each column don't overlap with cells from other columns and
+//   - the cells in each row don't overlap with cells from other rows.
 func (t *textTable) isTable() bool {
 	{
 		columns := make([]model.PdfRectangle, t.w)
@@ -729,18 +732,19 @@ func (t textTable) toTextTable() TextTable {
 // 4. Test each candidate O(N^4)
 
 func (cells cellList) findTables() []*textTable {
+	cells.findCorridors()
 	if verboseTable {
 		common.Log.Info("findTables @@1: cells=%d", len(cells))
-		common.Log.Info("cols <- findAlignedCells(getXLl, maxIntraReadingGapR, false)")
+		common.Log.Info("cols <- findAlignedCells(getLlx, maxIntraReadingGapR, false)")
 	}
-	cols := cells.findAlignedCells(getXLl, basesX, maxIntraReadingGapR, false)
-	sortContents(getYUr, true, cols)
+	cols := cells.findAlignedCells(getLlx, basesX, maxIntraReadingGapR, false)
+	sortContents(getUry, true, cols)
 
 	if verboseTable {
-		common.Log.Info("rows <- findAlignedCells(getYUr, lineDepthR, true)")
+		common.Log.Info("rows <- findAlignedCells(getUry, lineDepthR, true)")
 	}
-	rows := cells.findAlignedCells(getYUr, basesY, lineDepthR, true)
-	sortContents(getXLl, false, rows)
+	rows := cells.findAlignedCells(getUry, basesY, lineDepthR, true)
+	sortContents(getLlx, false, rows)
 
 	if verboseTable {
 		common.Log.Info("findTables @@2a: rows=%d", len(rows))
@@ -1429,76 +1433,3 @@ func (col *alignment) add(basis basisT, cell *textPara) {
 	col.cells = append(col.cells, cell)
 	col.cells.validate()
 }
-
-func (cell *textPara) at(basis basisT) float64 {
-	return basis._get(cell)
-}
-
-type _getter func(*textPara) float64
-type basisT int
-
-func (basis basisT) String() string {
-	name, ok := _basisName[basis]
-	if !ok {
-		return fmt.Sprintf("unkown basis %d", basis)
-	}
-	return name
-}
-
-func (basis basisT) _get(cell *textPara) float64 {
-	get := _basisGetter[basis]
-	return get(cell)
-}
-
-var (
-	// basesX get the x-center, left and right of cells.
-	basesX = []basisT{getXCe, getXLl, getXUr}
-	// basesY get the y-center, bottom and top of cells.
-	basesY = []basisT{getYCe, getYLl, getYUr}
-	// valueGetter is the reverse map reflect.ValueOf(get)] -> get
-	_basisGetter = map[basisT]_getter{
-		getXLl: _getXLl,
-		getXCe: _getXCe,
-		getXUr: _getXUr,
-		getYLl: _getYLl,
-		getYCe: _getYCe,
-		getYUr: _getYUr,
-	}
-	_basisName = map[basisT]string{
-		getXLl: "getXLl",
-		getXCe: "getXCe",
-		getXUr: "getXUr",
-		getYLl: "getYLl",
-		getYCe: "getYCe",
-		getYUr: "getYUr",
-	}
-)
-
-// func makeValueGetter() map[basisT]getter {
-// 	gettersAll := [][]getter{basesX, basesY}
-// 	valueGetter := map[reflect.Value]getter{}
-// 	for _, bases := range gettersAll {
-// 		for _, get := range bases {
-// 			valueGetter[reflect.ValueOf(get)] = get
-// 		}
-// 	}
-// 	return valueGetter
-// }
-
-const (
-	getNil basisT = iota
-	getXLl
-	getXCe
-	getXUr
-	getYLl
-	getYCe
-	getYUr
-)
-
-func _getXCe(para *textPara) float64 { return 0.5 * (para.Llx + para.Urx) }
-func _getXLl(para *textPara) float64 { return para.Llx }
-func _getXUr(para *textPara) float64 { return para.Urx }
-func _getYCe(para *textPara) float64 { return 0.5 * (para.Lly + para.Ury) }
-func _getYLl(para *textPara) float64 { return para.Lly }
-func _getYUr(para *textPara) float64 { return para.Ury }
-func _getTop(para *textPara) float64 { return -para.Ury }

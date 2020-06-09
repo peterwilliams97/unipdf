@@ -241,14 +241,14 @@ func (cells cellList) bbox() model.PdfRectangle {
 const DBL_MIN, DBL_MAX = -1.0e10, +1.0e10
 
 // extractTables converts the`paras` that are table cells to tables containing those cells.
-func (paras paraList) extractTables() paraList {
+func (paras paraList) extractTables(pageSize model.PdfRectangle) paraList {
 	common.Log.Debug("extractTables=%d ===========x=============", len(paras))
 	if len(paras) < 4 {
 		return paras
 	}
 
 	cells := cellList(paras)
-	tables := cells.findTables()
+	tables := cells.findTables(pageSize)
 	logTables(tables, "find tables")
 
 	// tables := paras.extractTableAtoms()
@@ -731,8 +731,8 @@ func (t textTable) toTextTable() TextTable {
 //    Sort table candidates by w x h descending
 // 4. Test each candidate O(N^4)
 
-func (cells cellList) findTables() []*textTable {
-	cells.findCorridors()
+func (cells cellList) findTables(pageSize model.PdfRectangle) []*textTable {
+	cells.findCorridors(pageSize)
 	if verboseTable {
 		common.Log.Info("findTables @@1: cells=%d", len(cells))
 		common.Log.Info("cols <- findAlignedCells(getLlx, maxIntraReadingGapR, false)")

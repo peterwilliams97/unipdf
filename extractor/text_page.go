@@ -37,7 +37,7 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	// paras.computeEBBoxes()
 
 	if useTables {
-		paras = paras.extractTables()
+		paras = paras.extractTables(pageSize)
 	}
 	// paras.log("tables extracted")
 	paras.computeEBBoxes()

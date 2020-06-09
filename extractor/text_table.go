@@ -732,7 +732,7 @@ func (t textTable) toTextTable() TextTable {
 // 4. Test each candidate O(N^4)
 
 func (cells cellList) findTables(pageSize model.PdfRectangle) []*textTable {
-	cells.findCorridors(pageSize)
+	cells.findCorridorTables(pageSize)
 	if verboseTable {
 		common.Log.Info("findTables @@1: cells=%d", len(cells))
 		common.Log.Info("cols <- findAlignedCells(getLlx, maxIntraReadingGapR, false)")

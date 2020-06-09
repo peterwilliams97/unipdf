@@ -53,16 +53,114 @@ import (
 //       urx := max(urx, cell1.urx)
 //       if Ellx > llx or Eurx < urx: break
 
-type corridorList []corridor
-
-func (corridors corridorList) cellSet() cellSet {
-	cells := cellSet{}
-	for _, corr := range corridors {
-		for _, cell := range corr.cells {
-			cells[cell] = true
+func (cells cellList) findCorridorTables(pageSize model.PdfRectangle) []*textTable {
+	rowCorridors, colCorridors := cells.findCorridors(pageSize)
+	var candidates [][2]corridor
+	for _, row := range rowCorridors {
+		for _, col := range colCorridors {
+			if row.cells[0] != col.cells[0] {
+				continue
+			}
+			candidates = append(candidates, [2]corridor{row, col})
 		}
 	}
-	return cells
+	cm := makeCrossingMap(rowCorridors, colCorridors)
+	var tables []*textTable
+	for i, cand := range candidates {
+		top, left := cand[0], cand[1]
+		common.Log.Info("candidate[%d]\n\t top=%s\n\tleft=%s", i, top.String(), left.String())
+
+		table := cm.isTable(top, left)
+		common.Log.Info("candidate[%d]=%s", i, table)
+		if table == nil {
+			continue
+		}
+		tables = append(tables, table)
+	}
+	return tables
+}
+
+func (cells cellList) findCorridors(pageSize model.PdfRectangle) (corridorList, corridorList) {
+	cells.sort(getLlx)
+	cells.sort(getUry)
+	cp := cells.newCellPartition()
+	var rowCorridors, colCorridors corridorList
+	common.Log.Info("findCorridors")
+	for i, cell := range cells {
+		// if !strings.Contains(cell.text(), "BIRTH:") {
+		// 	continue
+		// }
+		// if !strings.Contains(cell.text(), "EDUCATION:") {
+		// 	continue
+		// }
+		// if !strings.Contains(cell.text(), "SUMMARY CURRICULUM VITAE") {
+		// 	continue
+		// }
+
+		corr := cp.corridorX(cell, pageSize)
+		if len(corr.cells) >= 2 {
+			rowCorridors = append(rowCorridors, corr)
+			fmt.Printf("%4d: %6.2f %s\n", i, corr.PdfRectangle, corr.cells)
+			for j, c := range corr.cells {
+				fmt.Printf("%8d: %s\n", j, c)
+			}
+		}
+		corr = cp.corridorY(cell, pageSize)
+		if len(corr.cells) >= 2 {
+			colCorridors = append(colCorridors, corr)
+			fmt.Printf("%4d: %6.2f %s\n", i, corr.PdfRectangle, corr.cells)
+			for j, c := range corr.cells {
+				fmt.Printf("%8d: %s\n", j, c)
+			}
+		}
+	}
+
+	rowCorridors = rowCorridors.uniques()
+	colCorridors = colCorridors.uniques()
+
+	common.Log.Info("findCorridors:Done:rowCorridors")
+	for i, corr := range rowCorridors {
+		fmt.Printf("%4d: %6.2f %s\n", i, corr.PdfRectangle, corr.cells)
+		for j, c := range corr.cells {
+			fmt.Printf("%8d: %s\n", j, c)
+		}
+	}
+	common.Log.Info("findCorridors:Done:colCorridors")
+	for i, corr := range colCorridors {
+		fmt.Printf("%4d: %6.2f %s\n", i, corr.PdfRectangle, corr.cells)
+		for j, c := range corr.cells {
+			fmt.Printf("%8d: %s\n", j, c)
+		}
+	}
+	return rowCorridors, colCorridors
+}
+
+type crossingMap struct {
+	model.PdfRectangle
+	rowCorridors, colCorridors corridorList
+	rowCrossings, colCrossings map[*textPara][]crossing
+	rowIndex, colIndex         map[*textPara]int
+}
+type crossing struct {
+	corrIdx int
+	cellIdx int
+}
+
+func makeCrossingMap(rowCorridors, colCorridors corridorList) crossingMap {
+	bbox := rectUnion(rowCorridors[0].PdfRectangle, colCorridors[0].PdfRectangle)
+	return crossingMap{
+		PdfRectangle: bbox,
+		rowCorridors: rowCorridors,
+		colCorridors: colCorridors,
+		rowIndex:     rowCorridors.makeIndex(),
+		colIndex:     colCorridors.makeIndex(),
+		rowCrossings: rowCorridors.makeCrossings(),
+		colCrossings: colCorridors.makeCrossings(),
+	}
+}
+
+func (cm crossingMap) String() string {
+	return fmt.Sprintf("%6.2f [%d %d]", cm.PdfRectangle, len(cm.colCorridors), len(cm.rowCorridors))
 }
 
 //  build a table with `top` as its top row and `left` as its left
@@ -86,25 +184,31 @@ func (cm crossingMap) isTable(top, left corridor) *textTable {
 	colSet := rows.cellSet()
 	rowSet := rows.cellSet()
 	if !colSet.equals(rowSet) {
+		common.Log.Notice("colSet!=rowSet\n\tcolSet=%s\n\trowSet=%s",
+			colSet.String(), rowSet.String())
 		return nil
 	}
 	for cell := range colSet {
-		if cm.encloses(cell) {
+		if !cm.encloses(cell) {
+			common.Log.Notice("cm=%s doesn't enclose cell=%s", cm.String(), cell.String())
 			return nil
 		}
 	}
-	for _, col := range cols {
+	for i, col := range cols {
 		if len(col.cells) < 2 {
+			common.Log.Notice("column %d has %d cells", i, len(col.cells))
 			return nil
 		}
 	}
-	for _, row := range rows {
+	for i, row := range rows {
 		if len(row.cells) < 2 {
+			common.Log.Notice("row %d has %d cells", i, len(row.cells))
 			return nil
 		}
 	}
 	occupancy := float64(len(colSet)) / float64(len(left.cells)*len(top.cells))
 	if occupancy < 0.1 {
+		common.Log.Notice("occupancy=%.1f%%", 100.0*occupancy)
 		return nil
 	}
 
@@ -113,7 +217,7 @@ func (cm crossingMap) isTable(top, left corridor) *textTable {
 
 func (cm crossingMap) makeTable(cells cellSet) *textTable {
 	w := len(cm.colCorridors)
-	h := len(cm.colCorridors)
+	h := len(cm.rowCorridors)
 	table := newTextTable(w, h)
 	for cell := range cells {
 		x, ok := cm.colIndex[cell]
@@ -124,6 +228,7 @@ func (cm crossingMap) makeTable(cells cellSet) *textTable {
 		if !ok {
 			panic(cell)
 		}
+		common.Log.Notice("cell %d %d = %s", x, y, cell)
 		table.put(x, y, cell)
 	}
 	return table
@@ -136,7 +241,7 @@ func (cm crossingMap) column(cell *textPara) corridor {
 		panic(cell)
 	}
 	col := cm.colCorridors[idx]
-	return col.within(cm.bbox)
+	return col.within(cm.PdfRectangle)
 }
 
 func (cm crossingMap) row(cell *textPara) corridor {
@@ -145,41 +250,75 @@ func (cm crossingMap) row(cell *textPara) corridor {
 		panic(cell)
 	}
 	col := cm.rowCorridors[idx]
-	return col.within(cm.bbox)
+	return col.within(cm.PdfRectangle)
 }
 
 func (cm crossingMap) encloses(cell *textPara) bool {
-	return rectContainsBounded(cm.bbox, cell)
+	return rectContainsBounded(cm.PdfRectangle, cell)
 }
 
-type crossingMap struct {
-	rowCorridors, colCorridors corridorList
-	rowCrossings, colCrossings map[*textPara][]crossing
-	rowIndex, colIndex         map[*textPara]int
-	bbox                       model.PdfRectangle
-}
-type crossing struct {
-	corrIdx int
-	cellIdx int
-}
+type corridorList []corridor
 
-func makeCrossingMap(rowCorridors, colCorridors corridorList) crossingMap {
-	return crossingMap{
-		rowCorridors: rowCorridors,
-		colCorridors: colCorridors,
-		rowIndex:     rowCorridors.makeIndex(),
-		colIndex:     colCorridors.makeIndex(),
-		rowCrossings: rowCorridors.makeCrossings(),
-		colCrossings: colCorridors.makeCrossings(),
+func (corridors corridorList) uniques() corridorList {
+	if len(corridors) <= 1 {
+		return corridors
 	}
+	sort.Slice(corridors, func(i, j int) bool {
+		ci, cj := corridors[i].cells, corridors[j].cells
+		if len(ci) != len(cj) {
+			return len(ci) > len(cj)
+		}
+		ri, rj := corridors[i].PdfRectangle, corridors[j].PdfRectangle
+		if ri.Ury != rj.Ury {
+			return ri.Ury > rj.Ury
+		}
+		return ri.Llx < rj.Llx
+	})
+	uniques := []corridor{corridors[0]}
+	for _, corr := range corridors[1:] {
+		duplicate := false
+		for _, u := range uniques {
+			if u.contains(corr) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			uniques = append(uniques, corr)
+		}
+	}
+	return uniques
+}
+
+func (corridors corridorList) cellSet() cellSet {
+	cells := cellSet{}
+	for _, corr := range corridors {
+		for _, cell := range corr.cells {
+			cells[cell] = true
+		}
+	}
+	return cells
 }
 
 func (corridors corridorList) makeIndex() map[*textPara]int {
 	corridorsIndex := map[*textPara]int{}
 	for o, corr := range corridors {
 		for _, cell := range corr.cells {
+			if _, ok := corridorsIndex[cell]; ok {
+				panic(cell)
+			}
 			corridorsIndex[cell] = o
 		}
+	}
+	var zero *textPara
+	for cell, idx := range corridorsIndex {
+		if idx == 0 {
+			zero = cell
+			break
+		}
+	}
+	if zero == nil {
+		panic(corridorsIndex)
 	}
 	return corridorsIndex
 }
@@ -203,59 +342,57 @@ func (corridors corridorList) makeCrossings() map[*textPara][]crossing {
 	return cellCrossings
 }
 
-func (cells cellList) findCorridors(pageSize model.PdfRectangle) (corridorList, corridorList) {
-	cells.sort(getLlx)
-	cells.sort(getUry)
-	cp := cells.newCellPartition()
-	var xCorridors, yCorridors corridorList
-	common.Log.Info("findCorridors")
-	for i, cell := range cells {
-		// if !strings.Contains(cell.text(), "BIRTH:") {
-		// 	continue
-		// }
-		// if !strings.Contains(cell.text(), "EDUCATION:") {
-		// 	continue
-		// }
-		// if !strings.Contains(cell.text(), "SUMMARY CURRICULUM VITAE") {
-		// 	continue
-		// }
+type corridor struct {
+	model.PdfRectangle
+	cells cellList
+}
 
-		corr := cp.corridorX(cell, pageSize)
-		if len(corr.cells) >= 2 {
-			xCorridors = append(xCorridors, corr)
-			fmt.Printf("%4d: %6.2f %s\n", i, corr.PdfRectangle, corr.cells)
-			for j, c := range corr.cells {
-				fmt.Printf("%8d: %s\n", j, c)
+func (corr corridor) String() string {
+	return fmt.Sprintf("%6.2f %s", corr.PdfRectangle, corr.cells.String())
+}
+
+// contains returns true if `other` is a subset of `corr`.
+func (corr corridor) contains(other corridor) bool {
+	if len(other.cells) > len(corr.cells) {
+		panic("len(other.cells) > len(corr.cells)")
+	}
+	for i, cell := range corr.cells[:len(corr.cells)-len(other.cells)+1] {
+		if other.cells[0] != cell {
+			continue
+		}
+		for j, o := range other.cells {
+			if o != corr.cells[i+j] {
+				return false
 			}
 		}
-		corr = cp.corridorY(cell, pageSize)
-		if len(corr.cells) >= 2 {
-			yCorridors = append(yCorridors, corr)
-			fmt.Printf("%4d: %6.2f %s\n", i, corr.PdfRectangle, corr.cells)
-			for j, c := range corr.cells {
-				fmt.Printf("%8d: %s\n", j, c)
-			}
-		}
+		return true
 	}
+	return false
+}
 
-	xCorridors = xCorridors.uniques()
-	yCorridors = yCorridors.uniques()
+// within returns the subset of `corr` bounded by `bbox`
+func (corr corridor) within(bbox model.PdfRectangle) corridor {
+	var cells cellList
+	for _, cell := range corr.cells {
+		if rectContainsBounded(bbox, cell) {
+			cells = append(cells, cell)
+		}
+	}
+	return corridor{PdfRectangle: bbox, cells: cells}
+}
 
-	common.Log.Info("findCorridors:Done:Corridors")
-	for i, corr := range xCorridors {
-		fmt.Printf("%4d: %6.2f %s\n", i, corr.PdfRectangle, corr.cells)
-		for j, c := range corr.cells {
-			fmt.Printf("%8d: %s\n", j, c)
-		}
+type cellPartition struct {
+	baseOrder map[basisT]ordering
+	allCells  cellSet
+}
+
+func (cells cellList) newCellPartition() cellPartition {
+	baseOrder := map[basisT]ordering{}
+	bases := []basisT{getLlx, getUrx, getLly, getUry}
+	for _, basis := range bases {
+		baseOrder[basis] = cells.newOrdering(basis)
 	}
-	common.Log.Info("findCorridors:Done:yCorridors")
-	for i, corr := range yCorridors {
-		fmt.Printf("%4d: %6.2f %s\n", i, corr.PdfRectangle, corr.cells)
-		for j, c := range corr.cells {
-			fmt.Printf("%8d: %s\n", j, c)
-		}
-	}
-	return xCorridors, yCorridors
+	return cellPartition{baseOrder: baseOrder, allCells: cells.set()}
 }
 
 // corridorX returns the longest x corridor to the right of `cell0`.
@@ -372,24 +509,6 @@ func (cp cellPartition) corridorY(cell0 *textPara, pageSize model.PdfRectangle) 
 	return corridor{PdfRectangle: bbox, cells: cells}
 }
 
-type corridor struct {
-	model.PdfRectangle
-	cells cellList
-}
-type cellPartition struct {
-	baseOrder map[basisT]ordering
-	allCells  cellSet
-}
-
-func (cells cellList) newCellPartition() cellPartition {
-	baseOrder := map[basisT]ordering{}
-	bases := []basisT{getLlx, getUrx, getLly, getUry}
-	for _, basis := range bases {
-		baseOrder[basis] = cells.newOrdering(basis)
-	}
-	return cellPartition{baseOrder: baseOrder, allCells: cells.set()}
-}
-
 // xOverlapped returns the cells in that overlap `cell` in the x direction.
 func (cp cellPartition) xOverlapped(cell *textPara) cellSet {
 	leftOrEqual := cp.baseOrder[getLlx].le(cell.Urx)
@@ -477,68 +596,11 @@ func (o ordering) ge(z float64) cellSet {
 	return cells
 }
 
-func (corridors corridorList) uniques() corridorList {
-	if len(corridors) <= 1 {
-		return corridors
-	}
-	sort.Slice(corridors, func(i, j int) bool {
-		ci, cj := corridors[i].cells, corridors[j].cells
-		if len(ci) != len(cj) {
-			return len(ci) > len(cj)
-		}
-		ri, rj := corridors[i].PdfRectangle, corridors[j].PdfRectangle
-		if ri.Ury != rj.Ury {
-			return ri.Ury > rj.Ury
-		}
-		return ri.Llx < rj.Llx
-	})
-	uniques := []corridor{corridors[0]}
-	for _, corr := range corridors[1:] {
-		duplicate := false
-		for _, u := range uniques {
-			if u.contains(corr) {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			uniques = append(uniques, corr)
-		}
-	}
-	return uniques
-}
-
-// contains returns true if `other` is a subset of `corr`.
-func (corr corridor) contains(other corridor) bool {
-	if len(other.cells) > len(corr.cells) {
-		panic("len(other.cells) > len(corr.cells)")
-	}
-	for i, cell := range corr.cells[:len(corr.cells)-len(other.cells)+1] {
-		if other.cells[0] != cell {
-			continue
-		}
-		for j, o := range other.cells {
-			if o != corr.cells[i+j] {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
-// within returns the subset of `corr` bounded by `bbox`
-func (corr corridor) within(bbox model.PdfRectangle) corridor {
-	var cells cellList
-	for _, cell := range corr.cells {
-		if rectContainsBounded(bbox, cell) {
-			cells = append(cells, cell)
-		}
-	}
-	return corridor{PdfRectangle: bbox, cells: cells}
-}
-
 type cellSet map[*textPara]bool
+
+func (set cellSet) String() string {
+	return set.cellList().String()
+}
 
 // subtract returns the elements of `set` not in `other`.
 func (set cellSet) subtract(other cellSet) cellSet {

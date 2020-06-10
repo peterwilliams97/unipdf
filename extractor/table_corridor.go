@@ -55,22 +55,25 @@ import (
 
 func (cells cellList) findCorridorTables(pageSize model.PdfRectangle) []*textTable {
 	rowCorridors, colCorridors := cells.findCorridors(pageSize)
-	var candidates [][2]corridor
-	for _, row := range rowCorridors {
-		for _, col := range colCorridors {
+	var candidates [][2]int
+	for y, row := range rowCorridors {
+		for x, col := range colCorridors {
 			if row.cells[0] != col.cells[0] {
 				continue
 			}
-			candidates = append(candidates, [2]corridor{row, col})
+			candidates = append(candidates, [2]int{x, y})
 		}
 	}
 	cm := makeCrossingMap(rowCorridors, colCorridors)
 	var tables []*textTable
 	for i, cand := range candidates {
-		top, left := cand[0], cand[1]
-		common.Log.Info("candidate[%d]\n\t top=%s\n\tleft=%s", i, top.String(), left.String())
+		x, y := cand[0], cand[1]
+		top := rowCorridors[y]
+		left := colCorridors[x]
+		common.Log.Info("candidate[%d]\n\ty=%d  top=%s\n\tx=%d left=%s", i,
+			y, top.String(), x, left.String())
 
-		table := cm.isTable(top, left)
+		table := cm.isTable(y, x, top, left)
 		common.Log.Info("candidate[%d]=%s", i, table)
 		if table == nil {
 			continue
@@ -152,8 +155,8 @@ func makeCrossingMap(rowCorridors, colCorridors corridorList) crossingMap {
 		PdfRectangle: bbox,
 		rowCorridors: rowCorridors,
 		colCorridors: colCorridors,
-		rowIndex:     rowCorridors.makeIndex(),
-		colIndex:     colCorridors.makeIndex(),
+		rowIndex:     rowCorridors.makeIndex("rows"),
+		colIndex:     colCorridors.makeIndex("cols"),
 		rowCrossings: rowCorridors.makeCrossings(),
 		colCrossings: colCorridors.makeCrossings(),
 	}
@@ -169,17 +172,21 @@ func (cm crossingMap) String() string {
 //    all column cells are in a row
 //    all cells in rect are in a row and a column
 //    min occupancy
-func (cm crossingMap) isTable(top, left corridor) *textTable {
+func (cm crossingMap) isTable(y, x int, top, left corridor) *textTable {
 	if top.cells[0] != left.cells[0] {
 		panic("mismatch")
 	}
 	cols := make(corridorList, len(top.cells))
 	rows := make(corridorList, len(left.cells))
+	common.Log.Notice("isTable: cols")
 	for x, cell := range top.cells {
 		cols[x] = cm.column(cell)
+		fmt.Printf("%4d: %s\n", x, cols[x])
 	}
+	common.Log.Notice("isTable: rows")
 	for y, cell := range left.cells {
 		rows[y] = cm.row(cell)
+		fmt.Printf("%4d: %s\n", y, rows[y])
 	}
 	colSet := rows.cellSet()
 	rowSet := rows.cellSet()
@@ -212,24 +219,29 @@ func (cm crossingMap) isTable(top, left corridor) *textTable {
 		return nil
 	}
 
-	return cm.makeTable(colSet)
+	return cm.makeTable(cols, rows)
 }
 
-func (cm crossingMap) makeTable(cells cellSet) *textTable {
-	w := len(cm.colCorridors)
-	h := len(cm.rowCorridors)
+// makeTable builds a table from `cells`.
+func (cm crossingMap) makeTable(cols, rows corridorList) *textTable {
+	w := len(cols)
+	h := len(rows)
+	cellX := map[*textPara]int{}
+	for x, col := range cols {
+		for _, cell := range col.cells {
+			cellX[cell] = x
+		}
+	}
 	table := newTextTable(w, h)
-	for cell := range cells {
-		x, ok := cm.colIndex[cell]
-		if !ok {
-			panic(cell)
+	for y, row := range rows {
+		for _, cell := range row.cells {
+			x, ok := cellX[cell]
+			if !ok {
+				panic(cell)
+			}
+			common.Log.Notice("cell %d %d = %s", x, y, cell)
+			table.put(x, y, cell)
 		}
-		y, ok := cm.rowIndex[cell]
-		if !ok {
-			panic(cell)
-		}
-		common.Log.Notice("cell %d %d = %s", x, y, cell)
-		table.put(x, y, cell)
 	}
 	return table
 }
@@ -300,12 +312,14 @@ func (corridors corridorList) cellSet() cellSet {
 	return cells
 }
 
-func (corridors corridorList) makeIndex() map[*textPara]int {
+// makeIndex returns th map {cell: index in `corridors`}
+func (corridors corridorList) makeIndex(title string) map[*textPara]int {
 	corridorsIndex := map[*textPara]int{}
 	for o, corr := range corridors {
 		for _, cell := range corr.cells {
-			if _, ok := corridorsIndex[cell]; ok {
-				panic(cell)
+			if o2, ok := corridorsIndex[cell]; ok {
+				panic(fmt.Errorf("cell is multiple %s corridors %d %d cell=%s",
+					title, o2, o, cell.String()))
 			}
 			corridorsIndex[cell] = o
 		}

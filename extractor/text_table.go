@@ -238,8 +238,6 @@ func (cells cellList) bbox() model.PdfRectangle {
 	return rect
 }
 
-const DBL_MIN, DBL_MAX = -1.0e10, +1.0e10
-
 // extractTables converts the`paras` that are table cells to tables containing those cells.
 func (paras paraList) extractTables(pageSize model.PdfRectangle) paraList {
 	common.Log.Debug("extractTables=%d ===========x=============", len(paras))

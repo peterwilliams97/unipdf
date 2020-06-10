@@ -6,6 +6,7 @@
 package extractor
 
 import (
+	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
 )
 
@@ -54,6 +55,14 @@ func New(page *model.PdfPage) (*Extractor, error) {
 		mediaBox:    *mediaBox,
 		fontCache:   map[string]fontEntry{},
 		formResults: map[string]textResult{},
+	}
+	if e.mediaBox.Llx > e.mediaBox.Urx {
+		common.Log.Info("MediaBox has X coordinates reversed. %.2f Fixing.", e.mediaBox)
+		e.mediaBox.Llx, e.mediaBox.Urx = e.mediaBox.Urx, e.mediaBox.Llx
+	}
+	if e.mediaBox.Lly > e.mediaBox.Ury {
+		common.Log.Info("MediaBox has Y coordinates reversed. %.2f Fixing.", e.mediaBox)
+		e.mediaBox.Lly, e.mediaBox.Ury = e.mediaBox.Ury, e.mediaBox.Lly
 	}
 	return e, nil
 }

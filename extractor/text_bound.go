@@ -131,22 +131,12 @@ func overlapped(a, b bounded) bool {
 
 // overlappedX returns true if `a` and `b` overlap in the x direction.
 func overlappedX(a, b bounded) bool {
-	return overlappedXRect(a.bbox(), b.bbox())
+	return intersectsX(a.bbox(), b.bbox())
 }
 
 // overlappedY returns true if `a` and `b` overlap in the y direction.
 func overlappedY(a, b bounded) bool {
-	return overlappedYRect(a.bbox(), b.bbox())
-}
-
-// overlappedXRect returns true if `r0` and `r1` overlap in the x direction.
-func overlappedXRect(r0, r1 model.PdfRectangle) bool {
-	return (r0.Llx <= r1.Llx && r1.Llx <= r0.Urx) || (r0.Llx <= r1.Urx && r1.Urx <= r0.Urx)
-}
-
-// overlappedYRect returns true if `r0` and `r1` overlap in the y direction.
-func overlappedYRect(r0, r1 model.PdfRectangle) bool {
-	return (r0.Lly <= r1.Lly && r1.Lly <= r0.Ury) || (r0.Lly <= r1.Ury && r1.Ury <= r0.Ury)
+	return intersectsY(a.bbox(), b.bbox())
 }
 
 // rectUnion returns the smallest axis-aligned rectangle that contains `b1` and `b2`.
@@ -160,29 +150,27 @@ func rectUnion(b1, b2 model.PdfRectangle) model.PdfRectangle {
 }
 
 // rectIntersection returns the largest axis-aligned rectangle that is contained by `b1` and `b2`.
+// The bool return tells if `b1` and `b2` intersect,
 func rectIntersection(b1, b2 model.PdfRectangle) (model.PdfRectangle, bool) {
-	if !intersects(b1, b2) {
-		return model.PdfRectangle{}, false
-	}
 	return model.PdfRectangle{
 		Llx: math.Max(b1.Llx, b2.Llx),
 		Urx: math.Min(b1.Urx, b2.Urx),
 		Lly: math.Max(b1.Lly, b2.Lly),
 		Ury: math.Min(b1.Ury, b2.Ury),
-	}, true
+	}, intersects(b1, b2)
 }
 
-// intersects returns true if `r0` and `r1` overlap in the x and y axes.
-func intersects(b1, b2 model.PdfRectangle) bool {
-	return intersectsX(b1, b2) && intersectsY(b1, b2)
+// intersects returns true if `a` and `b` overlap in the x and y axes.
+func intersects(a, b model.PdfRectangle) bool {
+	return intersectsX(a, b) && intersectsY(a, b)
 }
 
-// intersectsX returns true if `r0` and `r1` overlap in the x axis.
-func intersectsX(b1, b2 model.PdfRectangle) bool {
-	return b1.Llx <= b2.Urx && b2.Llx <= b1.Urx
+// intersectsX returns true if `a` and `b` overlap in the x axis.
+func intersectsX(a, b model.PdfRectangle) bool {
+	return a.Llx <= b.Urx && b.Llx <= a.Urx
 }
 
-// intersectsY returns true if `r0` and `r1` overlap in the y axis.
-func intersectsY(b1, b2 model.PdfRectangle) bool {
-	return b1.Lly <= b2.Ury && b2.Lly <= b1.Ury
+// intersectsY returns true if `a` and `b` overlap in the y axis.
+func intersectsY(a, b model.PdfRectangle) bool {
+	return a.Lly <= b.Ury && b.Lly <= a.Ury
 }

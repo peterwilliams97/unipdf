@@ -297,10 +297,9 @@ func (paras paraList) before(i, j int) (bool, string) {
 	return true, "TO LEFT"
 }
 
-// overlappedX returns true if `r0` and `r1` overlap on the x-axis. !@#$ There is another version
-// of this!
+// overlappedX returns true if `r0` and `r1` overlap on the x-axis.
 func overlappedXPara(r0, r1 *textPara) bool {
-	return overlappedXRect(r0.eBBox, r1.eBBox)
+	return intersectsX(r0.eBBox, r1.eBBox)
 }
 
 // computeEBBoxes computes the eBBox fields in the elements of `paras`.

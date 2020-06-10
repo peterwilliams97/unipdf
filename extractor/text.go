@@ -61,13 +61,13 @@ func (e *Extractor) ExtractPageText() (*PageText, int, int, error) {
 // PageText.
 // This can be called on a page or a form XObject.
 func (e *Extractor) extractPageText(contents string, resources *model.PdfPageResources,
-	parentCTM transform.Matrix, level int) (
-	*PageText, int, int, error) {
+	parentCTM transform.Matrix, level int) (*PageText, int, int, error) {
 	common.Log.Trace("extractPageText: level=%d", level)
 	pageText := &PageText{pageSize: e.mediaBox}
 	state := newTextState(e.mediaBox)
 	var savedStates stateStack
 	to := newTextObject(e, resources, contentstream.GraphicsState{}, &state, &savedStates)
+	ss := shapeObject{parentCTM: parentCTM}
 	var inTextObj bool
 
 	if level > maxFormStack {
@@ -96,8 +96,8 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 
 			operand := op.Operand
 
-			if verboseGeom {
-				common.Log.Info("&&& op=%s", op)
+			if verboseGeom || true {
+				common.Log.Info("&&& %q op=%s", op.Operand, op)
 			}
 
 			switch operand {
@@ -113,6 +113,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 						savedStates.pop()
 					}
 				}
+				ss.CTM = gs.CTM
 			case "BT": // Begin text
 				// Begin a text object, initializing the text matrix, Tm, and
 				// the text line matrix, Tlm, to the identity matrix. Text
@@ -307,8 +308,101 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					return err
 				}
 				to.setHorizScaling(y)
-			case "Do":
-				// Handle XObjects by recursing through form XObjects.
+
+			//
+			// Path operators.
+			//
+
+			case "cm":
+				ss.CTM = gs.CTM
+
+			// Move to.
+			case "m":
+				if len(op.Params) != 2 {
+					common.Log.Debug("WARN: error while processing `m` operator: %v. Output may be incorrect.",
+						model.ErrRange)
+					return nil
+				}
+				xy, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					return err
+				}
+				common.Log.Debug("Move to: %.2f", xy)
+				ss.newSubPath()
+				ss.moveTo(xy[0], xy[1])
+			// Line to.
+			case "l":
+				if len(op.Params) != 2 {
+					common.Log.Debug("WARN: error while processing `l` operator: %v. Output may be incorrect.",
+						model.ErrRange)
+					return nil
+				}
+				xy, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					return err
+				}
+				ss.lineTo(xy[0], xy[1])
+			// Cubic bezier.
+			case "c":
+				if len(op.Params) != 6 {
+					return model.ErrRange
+				}
+				cbp, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					return err
+				}
+				common.Log.Debug("Cubic bezier params: %.2f", cbp)
+				ss.cubicTo(cbp[0], cbp[1], cbp[2], cbp[3], cbp[4], cbp[5])
+			// Cubic bezier.
+			case "v", "y":
+				if len(op.Params) != 4 {
+					return model.ErrRange
+				}
+				cbp, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					return err
+				}
+				common.Log.Debug("Cubic bezier params: %.2f", cbp)
+				ss.quadraticTo(cbp[0], cbp[1], cbp[2], cbp[3])
+			// Close current subpath.
+			case "h":
+				ss.closePath()
+				ss.newSubPath()
+			// Rectangle.
+			case "re":
+				if len(op.Params) != 4 {
+					return model.ErrRange
+				}
+				xywh, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					panic(err)
+					return err
+				}
+				ss.drawRectangle(xywh[0], xywh[1], xywh[2], xywh[3])
+				ss.newSubPath()
+			// Set path stroke.
+			case "S":
+				ss.stroke(&pageText.strokedPath)
+			// Close and stroke.
+			case "s":
+				ss.closePath()
+				ss.newSubPath()
+				ss.stroke(&pageText.strokedPath)
+			// "B": Fill then stroke the path using non-zero winding rule.
+			//  "B*": Fill then stroke the path using even-odd rule.
+			case "B", "B*":
+				ss.stroke(&pageText.strokedPath)
+			// "b" : Close, fill and stroke the path using non-zero winding rule.
+			// "b*": Close, fill and stroke the path using even-odd rule.
+			case "b", "b*":
+				ss.closePath()
+				ss.newSubPath()
+				ss.stroke(&pageText.strokedPath)
+			// End the current path without filling or stroking.
+			case "n":
+				ss.clearPath()
+
+			case "Do": // Handle XObjects by recursing through form XObjects.
 				if len(op.Params) == 0 {
 					common.Log.Debug("ERROR: expected XObject name operand for Do operator. Got %+v.", op.Params)
 					return core.ErrRangeError
@@ -364,6 +458,11 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	if err != nil {
 		common.Log.Debug("ERROR: Processing: err=%v", err)
 	}
+	common.Log.Notice("Strokes: %d", len(pageText.strokedPath))
+	for i, subpath := range pageText.strokedPath {
+		fmt.Printf("%4d: %s\n", i, subpath.String())
+	}
+
 	return pageText, state.numChars, state.numMisses, err
 }
 
@@ -384,7 +483,7 @@ func unsupportedFontErr(err error) bool {
 		strings.Contains(errStr, "fonts based on PostScript outlines are not supported")
 }
 
-// textResult is used for holding results of PDF form processig
+// textResult holds results from PDF form processing.
 type textResult struct {
 	pageText  PageText
 	numChars  int
@@ -399,7 +498,7 @@ type textResult struct {
 // Move to the start of the next line, offset from the start of the current line by (tx, ty).
 // tx and ty are in unscaled text space units.
 func (to *textObject) moveText(tx, ty float64) {
-	to.moveTo(tx, ty)
+	to.moveLP(tx, ty)
 }
 
 // moveTextSetLeading "TD" Move text location and set leading.
@@ -410,7 +509,7 @@ func (to *textObject) moveText(tx, ty float64) {
 //  tx ty Td
 func (to *textObject) moveTextSetLeading(tx, ty float64) {
 	to.state.tl = -ty
-	to.moveTo(tx, ty)
+	to.moveLP(tx, ty)
 }
 
 // nextLine "T*"" Moves start of text line to next text line
@@ -420,7 +519,7 @@ func (to *textObject) moveTextSetLeading(tx, ty float64) {
 // here because Tl is the text leading expressed as a positive number. Going to the next line
 // entails decreasing the y coordinate. (page 250)
 func (to *textObject) nextLine() {
-	to.moveTo(0, -to.state.tl)
+	to.moveLP(0, -to.state.tl)
 }
 
 // setTextMatrix "Tm".
@@ -550,18 +649,6 @@ func (to *textObject) setHorizScaling(y float64) {
 	to.state.th = y
 }
 
-// floatParam returns the single float parameter of operator `op`, or an error if it doesn't have
-// a single float parameter or we aren't in a text stream.
-func floatParam(op *contentstream.ContentStreamOperation) (float64, error) {
-	if len(op.Params) != 1 {
-		err := errors.New("incorrect parameter count")
-		common.Log.Debug("ERROR: %#q should have %d input params, got %d %+v",
-			op.Operand, 1, len(op.Params), op.Params)
-		return 0.0, err
-	}
-	return core.GetNumberAsFloat(op.Params[0])
-}
-
 // checkOp returns true if we are in a text stream and `op` has `numParams` params.
 // If `hard` is true and the number of params don't match, an error is returned.
 func (to *textObject) checkOp(op *contentstream.ContentStreamOperation, numParams int, hard bool) (
@@ -587,6 +674,18 @@ func (to *textObject) checkOp(op *contentstream.ContentStreamOperation, numParam
 		}
 	}
 	return true, nil
+}
+
+// floatParam returns the single float parameter of operator `op`, or an error if it doesn't have
+// a single float parameter or we aren't in a text stream.
+func floatParam(op *contentstream.ContentStreamOperation) (float64, error) {
+	if len(op.Params) != 1 {
+		err := errors.New("incorrect parameter count")
+		common.Log.Debug("ERROR: %#q should have %d input params, got %d %+v",
+			op.Operand, 1, len(op.Params), op.Params)
+		return 0.0, err
+	}
+	return core.GetNumberAsFloat(op.Params[0])
 }
 
 // stateStack is the PDF textState stack implementation.
@@ -890,11 +989,11 @@ func translationMatrix(p transform.Point) transform.Matrix {
 	return transform.TranslationMatrix(p.X, p.Y)
 }
 
-// moveTo moves the start of line pointer by `tx`,`ty` and sets the text pointer to the
+// moveLP moves the start of line pointer by `tx`,`ty` and sets the text pointer to the
 // start of line pointer.
 // Move to the start of the next line, offset from the start of the current line by (tx, ty).
 // `tx` and `ty` are in unscaled text space units.
-func (to *textObject) moveTo(tx, ty float64) {
+func (to *textObject) moveLP(tx, ty float64) {
 	to.tlm.Concat(transform.NewMatrix(1, 0, 0, 1, tx, ty))
 	to.tm = to.tlm
 }
@@ -911,11 +1010,13 @@ func isTextSpace(text string) bool {
 
 // PageText represents the layout of text on a device page.
 type PageText struct {
-	marks      []*textMark        // Texts and their positions on a PDF page.
-	viewText   string             // Extracted page text.
-	viewMarks  []TextMark         // Public view of text marks`.
-	viewTables []TextTable        // Public view of text table`.
-	pageSize   model.PdfRectangle // Page size. Used to calculate depth.
+	marks       []*textMark        // Texts and their positions on a PDF page.
+	viewText    string             // Extracted page text.
+	viewMarks   []TextMark         // Public view of text marks`.
+	viewTables  []TextTable        // Public view of text table`.
+	pageSize    model.PdfRectangle // Page size. Used to calculate depth.
+	strokedPath []pointList
+	filledPath  []pointList
 }
 
 // String returns a string describing `pt`.
@@ -1225,4 +1326,132 @@ func (to *textObject) getFontDict(name string) (fontObj core.PdfObject, err erro
 		return nil, errors.New("font not in resources")
 	}
 	return fontObj, nil
+}
+
+type shapeObject struct {
+	CTM       transform.Matrix
+	parentCTM transform.Matrix
+
+	// start       transform.Point
+	// current     transform.Point
+	// hasCurrent  bool
+	subpath pointList
+}
+
+func (to *shapeObject) hasCurrent() bool {
+	return len(to.subpath) > 0
+}
+
+func (to *shapeObject) start() transform.Point {
+	if !to.hasCurrent() {
+		panic(to)
+	}
+	return to.subpath[0]
+}
+
+func (to *shapeObject) current() transform.Point {
+	if !to.hasCurrent() {
+		panic(to)
+	}
+	return to.subpath[len(to.subpath)-1]
+}
+
+// moveTo starts a new subpath within the current path starting at the specified point. !@#$
+func (to *shapeObject) moveTo(x, y float64) {
+	to.subpath.clear()
+	to.subpath.add(to.point(x, y))
+	common.Log.Notice("moveTo(%.2f,%.2f subpath=%s", x, y, to.subpath)
+}
+
+func (to *shapeObject) lineTo(x, y float64) {
+	if !to.hasCurrent() {
+		to.moveTo(x, y)
+		return
+	}
+	to.subpath.add(to.point(x, y))
+	common.Log.Notice("lineTo(%.2f,%.2f subpath=%s", x, y, to.subpath)
+}
+
+// cubicTo adds a cubic bezier curve to the current path starting at the current point.
+// We only care about straight lines so we just update the current point.
+func (to *shapeObject) cubicTo(x1, y1, x2, y2, x3, y3 float64) {
+	to.subpath.add(to.point(x3, y3))
+}
+
+// quadraticTo adds a quadratic bezier curve to the current path starting at the current point.
+// We only care about straight lines so we just update the current point.
+func (to *shapeObject) quadraticTo(x1, y1, x2, y2 float64) {
+	to.subpath.add(to.point(x2, y2))
+}
+
+// DrawRectangle draws a rectangle of size w,h at position x,y.
+func (to *shapeObject) drawRectangle(x, y, w, h float64) {
+	ll := to.point(x, y)
+	ur := to.point(x+w, y+h)
+	r := model.PdfRectangle{
+		Llx: ll.X,
+		Lly: ll.Y,
+		Urx: ur.X,
+		Ury: ur.Y,
+	}
+	common.Log.Notice("drawRectangle: %6.2f", r)
+	to.newSubPath()
+	to.moveTo(x, y)
+	to.lineTo(x+w, y)
+	to.lineTo(x+w, y+h)
+	to.lineTo(x, y+h)
+	to.closePath()
+}
+
+func (to *shapeObject) newSubPath() {
+	to.subpath.clear()
+}
+
+// closePath adds a line segment from the current point to the beginning
+// of the current subpath. If there is no current point, this is a no-op.
+func (to *shapeObject) closePath() {
+	if !to.hasCurrent() {
+		return
+	}
+	to.subpath.add(to.start())
+}
+
+// clearPath clears the current path. There is no current point after this operation.
+func (to *shapeObject) clearPath() {
+	to.subpath.clear()
+}
+
+// stroke appends the current subpath to `strokedPath`.
+func (to *shapeObject) stroke(strokedPath *[]pointList) {
+	// panic("stroke")
+	*strokedPath = append(*strokedPath, to.subpath)
+	common.Log.Notice("STROKE: %d %s", len(to.subpath), to.subpath)
+}
+
+func (to *shapeObject) point(x, y float64) transform.Point {
+	ctm := to.parentCTM.Mult(to.CTM)
+	p0 := transform.NewPoint(x, y)
+	x, y = ctm.Transform(x, y)
+	p := transform.NewPoint(x, y)
+	common.Log.Notice("%6.2f->%6.2f %s", p0, p, ctm)
+	return p
+}
+
+type pointList []transform.Point
+
+func (path *pointList) add(points ...transform.Point) {
+	*path = append(*path, points...)
+}
+
+func (path *pointList) clear() {
+	*path = nil
+}
+
+func (path *pointList) String() string {
+	p := *path
+	n := len(p)
+	if n > 3 {
+		return fmt.Sprintf("%d: %6.2f %6.2 ... %6.2f", n, p[0], p[1], p[n-1])
+	}
+	return fmt.Sprintf("%d: %6.2f", n, p)
 }

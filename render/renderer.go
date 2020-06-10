@@ -20,8 +20,8 @@ import (
 )
 
 var (
-	errType  = errors.New("type check error")
-	errRange = errors.New("range check error")
+	errType  = model.ErrTypeCheck
+	errRange = model.ErrRange
 )
 
 type renderer struct {

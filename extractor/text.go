@@ -67,7 +67,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	state := newTextState(e.mediaBox)
 	var savedStates stateStack
 	to := newTextObject(e, resources, contentstream.GraphicsState{}, &state, &savedStates)
-	ss := shapeObject{parentCTM: parentCTM}
+	ss := shapesState{parentCTM: parentCTM}
 	var inTextObj bool
 
 	if level > maxFormStack {
@@ -113,7 +113,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 						savedStates.pop()
 					}
 				}
-				ss.CTM = gs.CTM
+				ss.ctm = gs.CTM
 			case "BT": // Begin text
 				// Begin a text object, initializing the text matrix, Tm, and
 				// the text line matrix, Tlm, to the identity matrix. Text
@@ -314,7 +314,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 			//
 
 			case "cm":
-				ss.CTM = gs.CTM
+				ss.ctm = gs.CTM
 
 			// Move to.
 			case "m":
@@ -382,22 +382,22 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				ss.newSubPath()
 			// Set path stroke.
 			case "S":
-				ss.stroke(&pageText.strokedPath)
+				ss.stroke(&pageText.strokes)
 			// Close and stroke.
 			case "s":
 				ss.closePath()
 				ss.newSubPath()
-				ss.stroke(&pageText.strokedPath)
+				ss.stroke(&pageText.strokes)
 			// "B": Fill then stroke the path using non-zero winding rule.
 			//  "B*": Fill then stroke the path using even-odd rule.
 			case "B", "B*":
-				ss.stroke(&pageText.strokedPath)
+				ss.stroke(&pageText.strokes)
 			// "b" : Close, fill and stroke the path using non-zero winding rule.
 			// "b*": Close, fill and stroke the path using even-odd rule.
 			case "b", "b*":
 				ss.closePath()
 				ss.newSubPath()
-				ss.stroke(&pageText.strokedPath)
+				ss.stroke(&pageText.strokes)
 			// End the current path without filling or stroking.
 			case "n":
 				ss.clearPath()
@@ -458,8 +458,8 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	if err != nil {
 		common.Log.Debug("ERROR: Processing: err=%v", err)
 	}
-	common.Log.Notice("Strokes: %d", len(pageText.strokedPath))
-	for i, subpath := range pageText.strokedPath {
+	common.Log.Notice("Strokes: %d", len(pageText.strokes))
+	for i, subpath := range pageText.strokes {
 		fmt.Printf("%4d: %s\n", i, subpath.String())
 	}
 
@@ -1010,13 +1010,13 @@ func isTextSpace(text string) bool {
 
 // PageText represents the layout of text on a device page.
 type PageText struct {
-	marks       []*textMark        // Texts and their positions on a PDF page.
-	viewText    string             // Extracted page text.
-	viewMarks   []TextMark         // Public view of text marks`.
-	viewTables  []TextTable        // Public view of text table`.
-	pageSize    model.PdfRectangle // Page size. Used to calculate depth.
-	strokedPath []pointList
-	filledPath  []pointList
+	marks      []*textMark        // Texts and their positions on a PDF page.
+	viewText   string             // Extracted page text.
+	viewMarks  []TextMark         // Public view of text marks`.
+	viewTables []TextTable        // Public view of text table`.
+	pageSize   model.PdfRectangle // Page size. Used to calculate depth.
+	strokes    []subpath
+	fills      []subpath
 }
 
 // String returns a string describing `pt`.
@@ -1328,66 +1328,62 @@ func (to *textObject) getFontDict(name string) (fontObj core.PdfObject, err erro
 	return fontObj, nil
 }
 
-type shapeObject struct {
-	CTM       transform.Matrix
+type shapesState struct {
+	ctm       transform.Matrix
 	parentCTM transform.Matrix
-
-	// start       transform.Point
-	// current     transform.Point
-	// hasCurrent  bool
-	subpath pointList
+	subpath
 }
 
-func (to *shapeObject) hasCurrent() bool {
-	return len(to.subpath) > 0
+func (ss *shapesState) hasCurrent() bool {
+	return len(ss.subpath) > 0
 }
 
-func (to *shapeObject) start() transform.Point {
-	if !to.hasCurrent() {
-		panic(to)
+func (ss *shapesState) start() transform.Point {
+	if !ss.hasCurrent() {
+		panic(ss)
 	}
-	return to.subpath[0]
+	return ss.subpath[0]
 }
 
-func (to *shapeObject) current() transform.Point {
-	if !to.hasCurrent() {
-		panic(to)
+func (ss *shapesState) current() transform.Point {
+	if !ss.hasCurrent() {
+		panic(ss)
 	}
-	return to.subpath[len(to.subpath)-1]
+	return ss.subpath[len(ss.subpath)-1]
 }
 
 // moveTo starts a new subpath within the current path starting at the specified point. !@#$
-func (to *shapeObject) moveTo(x, y float64) {
-	to.subpath.clear()
-	to.subpath.add(to.point(x, y))
-	common.Log.Notice("moveTo(%.2f,%.2f subpath=%s", x, y, to.subpath)
+func (ss *shapesState) moveTo(x, y float64) {
+	ss.newSubPath()
+	ss.add(ss.devicePoint(x, y))
+	common.Log.Notice("moveTo(%.2f,%.2f subpath=%s", x, y, ss.subpath)
 }
 
-func (to *shapeObject) lineTo(x, y float64) {
-	if !to.hasCurrent() {
-		to.moveTo(x, y)
+func (ss *shapesState) lineTo(x, y float64) {
+	if !ss.hasCurrent() {
+		ss.moveTo(x, y)
 		return
 	}
-	to.subpath.add(to.point(x, y))
-	common.Log.Notice("lineTo(%.2f,%.2f subpath=%s", x, y, to.subpath)
+	ss.add(ss.devicePoint(x, y))
+	common.Log.Notice("lineTo(%.2f,%.2f subpath=%s", x, y, ss.subpath)
 }
 
 // cubicTo adds a cubic bezier curve to the current path starting at the current point.
 // We only care about straight lines so we just update the current point.
-func (to *shapeObject) cubicTo(x1, y1, x2, y2, x3, y3 float64) {
-	to.subpath.add(to.point(x3, y3))
+func (ss *shapesState) cubicTo(x1, y1, x2, y2, x3, y3 float64) {
+	ss.add(ss.devicePoint(x3, y3))
 }
 
 // quadraticTo adds a quadratic bezier curve to the current path starting at the current point.
 // We only care about straight lines so we just update the current point.
-func (to *shapeObject) quadraticTo(x1, y1, x2, y2 float64) {
-	to.subpath.add(to.point(x2, y2))
+func (ss *shapesState) quadraticTo(x1, y1, x2, y2 float64) {
+	ss.add(ss.devicePoint(x2, y2))
 }
 
 // DrawRectangle draws a rectangle of size w,h at position x,y.
-func (to *shapeObject) drawRectangle(x, y, w, h float64) {
-	ll := to.point(x, y)
-	ur := to.point(x+w, y+h)
+func (ss *shapesState) drawRectangle(x, y, w, h float64) {
+	ll := ss.devicePoint(x, y)
+	ur := ss.devicePoint(x+w, y+h)
 	r := model.PdfRectangle{
 		Llx: ll.X,
 		Lly: ll.Y,
@@ -1395,63 +1391,73 @@ func (to *shapeObject) drawRectangle(x, y, w, h float64) {
 		Ury: ur.Y,
 	}
 	common.Log.Notice("drawRectangle: %6.2f", r)
-	to.newSubPath()
-	to.moveTo(x, y)
-	to.lineTo(x+w, y)
-	to.lineTo(x+w, y+h)
-	to.lineTo(x, y+h)
-	to.closePath()
+	ss.newSubPath()
+	ss.moveTo(x, y)
+	ss.lineTo(x+w, y)
+	ss.lineTo(x+w, y+h)
+	ss.lineTo(x, y+h)
+	ss.closePath()
 }
 
-func (to *shapeObject) newSubPath() {
-	to.subpath.clear()
+func (ss *shapesState) newSubPath() {
+	ss.clearPath()
 }
 
-// closePath adds a line segment from the current point to the beginning
-// of the current subpath. If there is no current point, this is a no-op.
-func (to *shapeObject) closePath() {
-	if !to.hasCurrent() {
+// closePath adds a line segment from the current point to the beginning of the current subpath.
+// If there is no current point, this is a no-op.
+func (ss *shapesState) closePath() {
+	if !ss.hasCurrent() {
 		return
 	}
-	to.subpath.add(to.start())
+	ss.add(ss.start())
 }
 
 // clearPath clears the current path. There is no current point after this operation.
-func (to *shapeObject) clearPath() {
-	to.subpath.clear()
+func (ss *shapesState) clearPath() {
+	ss.subpath = nil
 }
 
-// stroke appends the current subpath to `strokedPath`.
-func (to *shapeObject) stroke(strokedPath *[]pointList) {
+// stroke appends the current subpath to `strokes`.
+func (ss *shapesState) stroke(strokes *[]subpath) {
 	// panic("stroke")
-	*strokedPath = append(*strokedPath, to.subpath)
-	common.Log.Notice("STROKE: %d %s", len(to.subpath), to.subpath)
+	*strokes = append(*strokes, ss.subpath)
+	common.Log.Notice("STROKE: %d %s", len(ss.subpath), ss.subpath)
 }
 
-func (to *shapeObject) point(x, y float64) transform.Point {
-	ctm := to.parentCTM.Mult(to.CTM)
-	p0 := transform.NewPoint(x, y)
+// devicePoint returns coordinates `x`, `y` as a transform.Point in device coordinates.
+func (ss *shapesState) devicePoint(x, y float64) transform.Point {
+	ctm := ss.parentCTM.Mult(ss.ctm)
 	x, y = ctm.Transform(x, y)
-	p := transform.NewPoint(x, y)
-	common.Log.Notice("%6.2f->%6.2f %s", p0, p, ctm)
-	return p
+	return transform.NewPoint(x, y)
+
+	// ctm := ss.parentCTM.Mult(ss.CTM)
+	// // p0 := transform.NewPoint(x, y)
+	// x, y = ctm.Transform(x, y)
+	// p := transform.NewPoint(x, y)
+	// // common.Log.Notice("%6.2f->%6.2f %s", p0, p, ctm)
+	// return p
 }
 
-type pointList []transform.Point
-
-func (path *pointList) add(points ...transform.Point) {
-	*path = append(*path, points...)
+func (ss *shapesState) add(points ...transform.Point) {
+	ss.subpath = append(ss.subpath, points...)
 }
 
-func (path *pointList) clear() {
-	*path = nil
-}
+// subpath is a list of points
+type subpath []transform.Point
 
-func (path *pointList) String() string {
+// func (path *pointList) add(points ...transform.Point) {
+// 	*path = append(*path, points...)
+// }
+
+// func (path *pointList) clear() {
+// 	*path = nil
+// }
+
+func (path *subpath) String() string {
 	p := *path
 	n := len(p)
-	if n > 3 {
-		return fmt.Sprintf("%d: %6.2f %6.2 ... %6.2f", n, p[0], p[1], p[n-1])
+	if n <= 3 {
+		return fmt.Sprintf("%d: %6.2f", n, p)
 	}
-	return fmt.Sprintf("%d: %6.2f", n, p)
+	return fmt.Sprintf("%d: %6.2f %6.2f ... %6.2f", n, p[0], p[1], p[n-1])
 }

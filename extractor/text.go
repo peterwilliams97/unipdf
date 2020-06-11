@@ -458,9 +458,18 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	if err != nil {
 		common.Log.Debug("ERROR: Processing: err=%v", err)
 	}
-	common.Log.Notice("Strokes: %d", len(pageText.strokes))
-	for i, subpath := range pageText.strokes {
-		fmt.Printf("%4d: %s\n", i, subpath.String())
+	// common.Log.Notice("Strokes: %d", len(pageText.strokes))
+	// for i, subpath := range pageText.strokes {
+	// 	fmt.Printf("%4d: %s\n", i, subpath.String())
+	// 	// rulings := subpath.rulings()
+	// 	// for j, r := range rulings {
+	// 	// 	fmt.Printf("%8d: %s\n", j, r.String())
+	// 	// }
+	// }
+	rulings := pathRulings(pageText.strokes)
+	common.Log.Notice("Rulings: %d", len(rulings))
+	for i, v := range rulings {
+		fmt.Printf("%4d: %s\n", i, v.String())
 	}
 
 	return pageText, state.numChars, state.numMisses, err

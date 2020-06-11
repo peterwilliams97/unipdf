@@ -361,7 +361,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				ss.quadraticTo(cbp[0], cbp[1], cbp[2], cbp[3])
 			case "h": // Close current subpath.
 				ss.closePath()
-				ss.newSubPath()
+				// ss.newSubPath()
 			case "re": // Rectangle.
 				if len(op.Params) != 4 {
 					return model.ErrRange
@@ -378,22 +378,25 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				ss.stroke(&pageText.strokes)
 			case "s": // Close and stroke.
 				ss.closePath()
+				ss.stroke(&pageText.strokes)
 				ss.newSubPath()
-				ss.fill(&pageText.fills)
+
 			case "F": // Fill
 				ss.stroke(&pageText.strokes)
 			case "f": // Close and fill.
 				ss.closePath()
-				ss.newSubPath()
 				ss.fill(&pageText.fills)
+				ss.newSubPath()
+
 			case "B", "B*": // Fill then stroke the path. "B" non-zero winding rule. "B*" odd-even
 				ss.fill(&pageText.fills)
 				ss.stroke(&pageText.strokes)
 			case "b", "b*": //  Close, fill and stroke the path  "b" non-zero winding rule. "b*" odd-even
 				ss.closePath()
-				ss.newSubPath()
+
 				ss.fill(&pageText.fills)
 				ss.stroke(&pageText.strokes)
+				ss.newSubPath()
 			// End the current path without filling or stroking.
 			case "n":
 				ss.clearPath()
@@ -454,17 +457,19 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	if err != nil {
 		common.Log.Debug("ERROR: Processing: err=%v", err)
 	}
+
+	strokeRulings := makeStrokeRulings(pageText.strokes)
+	fillRulings := makeFillRulings(pageText.fills)
+
 	common.Log.Notice("Strokes: %d", len(pageText.strokes))
-	// for i, subpath := range pageText.strokes {
-	// 	fmt.Printf("%4d: %s\n", i, subpath.String())
-	// 	// rulings := subpath.rulings()
-	// 	// for j, r := range rulings {
-	// 	// 	fmt.Printf("%8d: %s\n", j, r.String())
-	// 	// }
-	// }
-	rulings := strokeRulings(pageText.strokes)
-	common.Log.Notice("Rulings: %d", len(rulings))
-	for i, v := range rulings {
+	common.Log.Notice("Stroke Rulings: %d", len(strokeRulings))
+	for i, v := range strokeRulings {
+		fmt.Printf("%4d: %s\n", i, asString(v))
+	}
+
+	common.Log.Notice("Fill: %d", len(pageText.fills))
+	common.Log.Notice("Fill Rulings: %d", len(fillRulings))
+	for i, v := range fillRulings {
 		fmt.Printf("%4d: %s\n", i, asString(v))
 	}
 
@@ -1369,6 +1374,7 @@ func (ss *shapesState) lineTo(x, y float64) {
 		ss.moveTo(x, y)
 		return
 	}
+
 	ss.add(ss.devicePoint(x, y))
 	common.Log.Notice("lineTo(%.2f,%.2f subpath=%s", x, y, ss.subpath)
 }
@@ -1406,6 +1412,7 @@ func (ss *shapesState) drawRectangle(x, y, w, h float64) {
 
 func (ss *shapesState) newSubPath() {
 	ss.clearPath()
+	common.Log.Notice("newSubPath:  %s", ss.subpath)
 }
 
 // closePath adds a line segment from the current point to the beginning of the current subpath.
@@ -1414,7 +1421,14 @@ func (ss *shapesState) closePath() {
 	if !ss.hasCurrent() {
 		return
 	}
-	ss.add(ss.start())
+	if !equalPoints(ss.current(), ss.start()) {
+		ss.add(ss.start())
+	}
+	common.Log.Notice("closePath:  %s", ss.subpath)
+}
+
+func equalPoints(p1, p2 transform.Point) bool {
+	return p1.X == p2.X && p1.Y == p2.Y
 }
 
 // clearPath clears the current path. There is no current point after this operation.
@@ -1430,6 +1444,9 @@ func (ss *shapesState) stroke(strokes *[]subpath) {
 
 // fill appends the current subpath to `fills`.
 func (ss *shapesState) fill(fills *[]subpath) {
+	if len(ss.subpath) == 0 {
+		panic(ss)
+	}
 	*fills = append(*fills, ss.subpath)
 	common.Log.Notice("FILL: %d %s", len(*fills), ss.subpath)
 }
@@ -1459,7 +1476,7 @@ type subpath []transform.Point
 func (path *subpath) String() string {
 	p := *path
 	n := len(p)
-	if n <= 3 {
+	if n <= 7 {
 		return fmt.Sprintf("%d: %6.2f", n, p)
 	}
 	return fmt.Sprintf("%d: %6.2f %6.2f ... %6.2f", n, p[0], p[1], p[n-1])

@@ -13,15 +13,16 @@ import (
 	"github.com/unidoc/unipdf/v3/internal/transform"
 )
 
-const rulingTol = 1.0 / 200.0
-const rulingSignificant = 50.0
-
-type rulingList []vector
-type vector struct {
-	p1, p2 transform.Point
-	kind   rulingKind
+type ruling interface {
+	kind() rulingKind
+	primary() float64
+	lo() float64
+	hi() float64
+	// String() string
 }
+
 type rulingKind int
+type rulingList []ruling
 
 const (
 	rulingNil rulingKind = iota
@@ -43,78 +44,121 @@ var rulingString = map[rulingKind]string{
 	rulingVer: "vertical",
 }
 
-func (v vector) String() string {
-	switch v.kind {
+const rulingTol = 1.0 / 200.0
+const rulingSignificant = 50.0
+
+type edgeRuling struct {
+	p1, p2 transform.Point
+	_kind  rulingKind
+}
+
+func (v edgeRuling) kind() rulingKind { return v._kind }
+
+func asString(v ruling) string {
+	if v.kind() == rulingNil {
+		return "NOT RULING"
+	}
+	return fmt.Sprintf("%10s x=%6.2f %6.2f - %6.2f (%6.2f)",
+		v.kind(), v.primary(), v.lo(), v.hi(), v.hi()-v.lo())
+	// switch v.kind() {
+	// case rulingVer:
+	// 	return fmt.Sprintf("%10s x=%6.2f dy=%6.2f =%6.2f - %6.2f",
+	// 		v._kind, v.xMean(), v.p2.Y-v.p1.Y, v.p1.Y, v.p2.Y)
+	// case rulingHor:
+	// 	return fmt.Sprintf("%10s y=%6.2f dx=%6.2f =%6.2f - %6.2f",
+	// 		v._kind, v.yMean(), v.p2.X-v.p1.X, v.p1.X, v.p2.X)
+	// default:
+	// 	return fmt.Sprintf("%10s p1=%6.2f p2=%6.2f", v._kind, v.p1, v.p2)
+	// }
+}
+
+func (v edgeRuling) primary() float64 {
+	switch v._kind {
 	case rulingVer:
-		return fmt.Sprintf("%10s x=%6.2f dy=%6.2f =%6.2f - %6.2f",
-			v.kind, v.xMean(), v.p2.Y-v.p1.Y, v.p1.Y, v.p2.Y)
+		return v.xMean()
 	case rulingHor:
-		return fmt.Sprintf("%10s y=%6.2f dx=%6.2f =%6.2f - %6.2f",
-			v.kind, v.yMean(), v.p2.X-v.p1.X, v.p1.X, v.p2.X)
+		return v.yMean()
 	default:
-		return fmt.Sprintf("%10s p1=%6.2f p2=%6.2f", v.kind, v.p1, v.p2)
+		panic(v)
 	}
 }
 
-func (v vector) xMean() float64 {
+func (v edgeRuling) lo() float64 {
+	switch v._kind {
+	case rulingVer:
+		return math.Min(v.p1.Y, v.p2.Y)
+	case rulingHor:
+		return math.Min(v.p1.X, v.p2.X)
+	default:
+		panic(v)
+	}
+}
+
+func (v edgeRuling) hi() float64 {
+	switch v._kind {
+	case rulingVer:
+		return math.Max(v.p1.Y, v.p2.Y)
+	case rulingHor:
+		return math.Max(v.p1.X, v.p2.X)
+	default:
+		panic(v)
+	}
+}
+
+func (v edgeRuling) xMean() float64 {
 	return 0.5 * (v.p1.X + v.p2.X)
 }
 
-func (v vector) xDelta() float64 {
+func (v edgeRuling) xDelta() float64 {
 	return math.Abs(v.p2.X - v.p2.X)
 }
 
-func (v vector) yMean() float64 {
+func (v edgeRuling) yMean() float64 {
 	return 0.5 * (v.p1.Y + v.p2.Y)
 }
 
-func (v vector) yDelta() float64 {
+func (v edgeRuling) yDelta() float64 {
 	return math.Abs(v.p2.Y - v.p2.Y)
 }
 
-func (v vector) asRuling() vector {
+func makeEdgeRuling(p1, p2 transform.Point) edgeRuling {
+	v := edgeRuling{p1: p1, p2: p2}
 	dx := math.Abs(v.p1.X - v.p2.X)
 	dy := math.Abs(v.p1.Y - v.p2.Y)
 	if dx >= rulingSignificant && dy <= rulingTol {
-		y := v.yMean()
-		v.p1.Y = y
-		v.p2.Y = y
-		v.kind = rulingHor
+		v._kind = rulingHor
 	} else if dy >= rulingSignificant && dx <= rulingTol {
-		x := v.xMean()
-		v.p1.X = x
-		v.p2.X = x
-		v.kind = rulingVer
+		v._kind = rulingVer
 	} else {
-		v.kind = rulingNil
+		v._kind = rulingNil
 	}
 	return v
 }
 
-func pathRulings(paths []subpath) rulingList {
+func strokeRulings(strokes []subpath) rulingList {
 	var vecs rulingList
-	for _, path := range paths {
-		vecs = append(vecs, path._rulings()...)
+	for _, path := range strokes {
+		vecs = append(vecs, path._strokeRulings()...)
 	}
 	vecs.sort()
 	return vecs
 }
 
-func (path subpath) rulings() rulingList {
-	vecs := path.rulings()
+func (path subpath) strokeRulings() rulingList {
+	vecs := path._strokeRulings()
 	vecs.sort()
 	return vecs
 }
 
-func (path subpath) _rulings() rulingList {
+func (path subpath) _strokeRulings() rulingList {
 	if len(path) < 2 {
 		return nil
 	}
 	var vecs rulingList
 	p1 := path[0]
 	for _, p2 := range path[1:] {
-		v := vector{p1: p1, p2: p2}
-		vecs = append(vecs, v.asRuling())
+		v := makeEdgeRuling(p1, p2)
+		vecs = append(vecs, v)
 		p1 = p2
 	}
 	return vecs
@@ -123,33 +167,24 @@ func (path subpath) _rulings() rulingList {
 func (vecs rulingList) sort() {
 	sort.Slice(vecs, func(i, j int) bool {
 		vi, vj := vecs[i], vecs[j]
-		if vi.kind != vj.kind {
-			return vi.kind > vj.kind
+		if vi.kind() != vj.kind() {
+			return vi.kind() > vj.kind()
 		}
-		switch vi.kind {
-		case rulingHor:
-			mi, mj := vi.yMean(), vj.yMean()
-			if mi != mj {
-				return mi > mj
+		order := func(b bool) bool {
+			if vi.kind() == rulingVer {
+				return !b
 			}
-			mi, mj = vi.p1.X, vj.p1.X
-			if mi != mj {
-				return mi > mj
-			}
-		case rulingVer:
-			mi, mj := vi.xMean(), vj.xMean()
-			if mi != mj {
-				return mi < mj
-			}
-			mi, mj = vi.p1.Y, vj.p1.Y
-			if mi != mj {
-				return mi > mj
-			}
+			return b
 		}
-		mi, mj := vi.p1.Y, vj.p1.Y
+
+		mi, mj := vi.primary(), vj.primary()
 		if mi != mj {
-			return mi > mj
+			return order(mi < mj)
 		}
-		return vi.p1.X < vj.p1.X
+		mi, mj = vi.lo(), vj.lo()
+		if mi != mj {
+			return !order(mi < mj)
+		}
+		return !order(vi.hi() < vj.hi())
 	})
 }

@@ -313,11 +313,9 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 			// Path operators.
 			//
 
-			case "cm":
+			case "cm": // Update CTM
 				ss.ctm = gs.CTM
-
-			// Move to.
-			case "m":
+			case "m": // Move to.
 				if len(op.Params) != 2 {
 					common.Log.Debug("WARN: error while processing `m` operator: %v. Output may be incorrect.",
 						model.ErrRange)
@@ -330,8 +328,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				common.Log.Debug("Move to: %.2f", xy)
 				ss.newSubPath()
 				ss.moveTo(xy[0], xy[1])
-			// Line to.
-			case "l":
+			case "l": // Line to.
 				if len(op.Params) != 2 {
 					common.Log.Debug("WARN: error while processing `l` operator: %v. Output may be incorrect.",
 						model.ErrRange)
@@ -342,8 +339,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					return err
 				}
 				ss.lineTo(xy[0], xy[1])
-			// Cubic bezier.
-			case "c":
+			case "c": // Cubic bezier.
 				if len(op.Params) != 6 {
 					return model.ErrRange
 				}
@@ -353,8 +349,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				}
 				common.Log.Debug("Cubic bezier params: %.2f", cbp)
 				ss.cubicTo(cbp[0], cbp[1], cbp[2], cbp[3], cbp[4], cbp[5])
-			// Cubic bezier.
-			case "v", "y":
+			case "v", "y": // Cubic bezier.
 				if len(op.Params) != 4 {
 					return model.ErrRange
 				}
@@ -364,12 +359,10 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				}
 				common.Log.Debug("Cubic bezier params: %.2f", cbp)
 				ss.quadraticTo(cbp[0], cbp[1], cbp[2], cbp[3])
-			// Close current subpath.
-			case "h":
+			case "h": // Close current subpath.
 				ss.closePath()
 				ss.newSubPath()
-			// Rectangle.
-			case "re":
+			case "re": // Rectangle.
 				if len(op.Params) != 4 {
 					return model.ErrRange
 				}
@@ -380,23 +373,26 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				}
 				ss.drawRectangle(xywh[0], xywh[1], xywh[2], xywh[3])
 				ss.newSubPath()
-			// Set path stroke.
-			case "S":
+
+			case "S": // Stroke
 				ss.stroke(&pageText.strokes)
-			// Close and stroke.
-			case "s":
+			case "s": // Close and stroke.
 				ss.closePath()
 				ss.newSubPath()
+				ss.fill(&pageText.fills)
+			case "F": // Fill
 				ss.stroke(&pageText.strokes)
-			// "B": Fill then stroke the path using non-zero winding rule.
-			//  "B*": Fill then stroke the path using even-odd rule.
-			case "B", "B*":
-				ss.stroke(&pageText.strokes)
-			// "b" : Close, fill and stroke the path using non-zero winding rule.
-			// "b*": Close, fill and stroke the path using even-odd rule.
-			case "b", "b*":
+			case "f": // Close and fill.
 				ss.closePath()
 				ss.newSubPath()
+				ss.fill(&pageText.fills)
+			case "B", "B*": // Fill then stroke the path. "B" non-zero winding rule. "B*" odd-even
+				ss.fill(&pageText.fills)
+				ss.stroke(&pageText.strokes)
+			case "b", "b*": //  Close, fill and stroke the path  "b" non-zero winding rule. "b*" odd-even
+				ss.closePath()
+				ss.newSubPath()
+				ss.fill(&pageText.fills)
 				ss.stroke(&pageText.strokes)
 			// End the current path without filling or stroking.
 			case "n":
@@ -458,7 +454,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	if err != nil {
 		common.Log.Debug("ERROR: Processing: err=%v", err)
 	}
-	// common.Log.Notice("Strokes: %d", len(pageText.strokes))
+	common.Log.Notice("Strokes: %d", len(pageText.strokes))
 	// for i, subpath := range pageText.strokes {
 	// 	fmt.Printf("%4d: %s\n", i, subpath.String())
 	// 	// rulings := subpath.rulings()
@@ -466,10 +462,10 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	// 	// 	fmt.Printf("%8d: %s\n", j, r.String())
 	// 	// }
 	// }
-	rulings := pathRulings(pageText.strokes)
+	rulings := strokeRulings(pageText.strokes)
 	common.Log.Notice("Rulings: %d", len(rulings))
 	for i, v := range rulings {
-		fmt.Printf("%4d: %s\n", i, v.String())
+		fmt.Printf("%4d: %s\n", i, asString(v))
 	}
 
 	return pageText, state.numChars, state.numMisses, err
@@ -1428,9 +1424,14 @@ func (ss *shapesState) clearPath() {
 
 // stroke appends the current subpath to `strokes`.
 func (ss *shapesState) stroke(strokes *[]subpath) {
-	// panic("stroke")
 	*strokes = append(*strokes, ss.subpath)
-	common.Log.Notice("STROKE: %d %s", len(ss.subpath), ss.subpath)
+	common.Log.Notice("STROKE: %d %s", len(*strokes), ss.subpath)
+}
+
+// fill appends the current subpath to `fills`.
+func (ss *shapesState) fill(fills *[]subpath) {
+	*fills = append(*fills, ss.subpath)
+	common.Log.Notice("FILL: %d %s", len(*fills), ss.subpath)
 }
 
 // devicePoint returns coordinates `x`, `y` as a transform.Point in device coordinates.
@@ -1438,13 +1439,6 @@ func (ss *shapesState) devicePoint(x, y float64) transform.Point {
 	ctm := ss.parentCTM.Mult(ss.ctm)
 	x, y = ctm.Transform(x, y)
 	return transform.NewPoint(x, y)
-
-	// ctm := ss.parentCTM.Mult(ss.CTM)
-	// // p0 := transform.NewPoint(x, y)
-	// x, y = ctm.Transform(x, y)
-	// p := transform.NewPoint(x, y)
-	// // common.Log.Notice("%6.2f->%6.2f %s", p0, p, ctm)
-	// return p
 }
 
 func (ss *shapesState) add(points ...transform.Point) {

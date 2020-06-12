@@ -8,7 +8,8 @@ package extractor
 // The follow constant configure debugging.
 const (
 	verbose         = false
-	verboseGeom     = false
+	verboseText     = false
+	verboseShape    = false
 	verbosePage     = false
 	verbosePara     = false
 	verboseParaLine = verbosePara && false

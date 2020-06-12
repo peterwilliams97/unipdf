@@ -19,6 +19,16 @@ type ContentStreamOperation struct {
 	Operand string
 }
 
+// String returns a description of `op`.
+func (op ContentStreamOperation) String() string {
+	params := ""
+	if len(op.Params) > 0 {
+		params = fmt.Sprintf("%+v", op.Params)
+		params = params[1 : len(params)-1]
+	}
+	return fmt.Sprintf("%4q %s", op.Operand, params)
+}
+
 // ContentStreamOperations is a slice of ContentStreamOperations.
 type ContentStreamOperations []*ContentStreamOperation
 

@@ -96,15 +96,15 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 
 			operand := op.Operand
 
-			if verboseGeom || true {
-				common.Log.Info("&&& %q op=%s", op.Operand, op)
+			if verboseText || verboseShape {
+				common.Log.Info("&&& %s", op.String())
 			}
 
 			switch operand {
 			case "q":
 				savedStates.push(&state)
 			case "Q":
-				if verboseGeom {
+				if verboseText {
 					common.Log.Info("Restore state: %s", savedStates.String())
 				}
 				if !savedStates.empty() {
@@ -326,7 +326,6 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					return err
 				}
 				common.Log.Debug("Move to: %.2f", xy)
-				ss.newSubPath()
 				ss.moveTo(xy[0], xy[1])
 			case "l": // Line to.
 				if len(op.Params) != 2 {
@@ -361,7 +360,6 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				ss.quadraticTo(cbp[0], cbp[1], cbp[2], cbp[3])
 			case "h": // Close current subpath.
 				ss.closePath()
-				// ss.newSubPath()
 			case "re": // Rectangle.
 				if len(op.Params) != 4 {
 					return model.ErrRange
@@ -372,33 +370,31 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					return err
 				}
 				ss.drawRectangle(xywh[0], xywh[1], xywh[2], xywh[3])
-				ss.newSubPath()
-
+				ss.closePath()
 			case "S": // Stroke
 				ss.stroke(&pageText.strokes)
+				ss.clearPath()
 			case "s": // Close and stroke.
 				ss.closePath()
 				ss.stroke(&pageText.strokes)
-				ss.newSubPath()
-
+				ss.clearPath()
 			case "F": // Fill
-				ss.stroke(&pageText.strokes)
+				ss.fill(&pageText.fills)
+				ss.clearPath()
 			case "f": // Close and fill.
 				ss.closePath()
 				ss.fill(&pageText.fills)
-				ss.newSubPath()
-
+				ss.clearPath()
 			case "B", "B*": // Fill then stroke the path. "B" non-zero winding rule. "B*" odd-even
 				ss.fill(&pageText.fills)
 				ss.stroke(&pageText.strokes)
+				ss.clearPath()
 			case "b", "b*": //  Close, fill and stroke the path  "b" non-zero winding rule. "b*" odd-even
 				ss.closePath()
-
 				ss.fill(&pageText.fills)
 				ss.stroke(&pageText.strokes)
-				ss.newSubPath()
-			// End the current path without filling or stroking.
-			case "n":
+				ss.clearPath()
+			case "n": // End the current path without filling or stroking.
 				ss.clearPath()
 
 			case "Do": // Handle XObjects by recursing through form XObjects.
@@ -467,7 +463,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 		fmt.Printf("%4d: %s\n", i, asString(v))
 	}
 
-	common.Log.Notice("Fill: %d", len(pageText.fills))
+	common.Log.Notice("Fills: %d", len(pageText.fills))
 	common.Log.Notice("Fill Rulings: %d", len(fillRulings))
 	for i, v := range fillRulings {
 		fmt.Printf("%4d: %s\n", i, asString(v))
@@ -598,7 +594,7 @@ func (to *textObject) setCharSpacing(x float64) {
 		return
 	}
 	to.state.tc = x
-	if verboseGeom {
+	if verboseText {
 		common.Log.Info("setCharSpacing: %.2f state=%s", x, to.state.String())
 	}
 }
@@ -892,7 +888,7 @@ func (to *textObject) renderText(data []byte) error {
 		tfs*th, 0,
 		0, tfs,
 		0, state.trise)
-	if verboseGeom {
+	if verboseText {
 		common.Log.Info("renderText: %d codes=%+v texts=%q", len(charcodes), charcodes, texts)
 	}
 
@@ -931,7 +927,7 @@ func (to *textObject) renderText(data []byte) error {
 		// t is the displacement of the text cursor when the character is rendered.
 		t0 := transform.Point{X: (c.X*tfs + w) * th}
 		t := transform.Point{X: (c.X*tfs + state.tc + w) * th}
-		if verboseGeom {
+		if verboseText {
 			common.Log.Info("tfs=%.2f tc=%.2f tw=%.2f th=%.2f", tfs, state.tc, state.tw, th)
 			common.Log.Info("dx,dy=%.3f t0=%.2f t=%.2f", c, t0, t)
 		}
@@ -942,7 +938,7 @@ func (to *textObject) renderText(data []byte) error {
 		td := translationMatrix(t)
 		end := to.gs.CTM.Mult(to.tm).Mult(td0)
 
-		if verboseGeom {
+		if verboseText {
 			common.Log.Info("end:\n\tCTM=%s\n\t tm=%s\n"+
 				"\t td=%s xlat=%s\n"+
 				"\ttd0=%s\n\t → %s xlat=%s",
@@ -1025,8 +1021,8 @@ type PageText struct {
 	viewMarks  []TextMark         // Public view of text marks`.
 	viewTables []TextTable        // Public view of text table`.
 	pageSize   model.PdfRectangle // Page size. Used to calculate depth.
-	strokes    []subpath
-	fills      []subpath
+	strokes    []*subpath
+	fills      []*subpath
 }
 
 // String returns a string describing `pt`.
@@ -1339,69 +1335,60 @@ func (to *textObject) getFontDict(name string) (fontObj core.PdfObject, err erro
 }
 
 type shapesState struct {
-	ctm       transform.Matrix
-	parentCTM transform.Matrix
-	subpath
+	ctm          transform.Matrix
+	parentCTM    transform.Matrix
+	subpaths     []*subpath
+	freshSubpath bool
+	firstPoint   transform.Point // First point of path in device coordinates
 }
 
-func (ss *shapesState) hasCurrent() bool {
-	return len(ss.subpath) > 0
+func (ss *shapesState) String() string {
+	return fmt.Sprintf("%d subpaths fresh=%t", len(ss.subpaths), ss.freshSubpath)
 }
 
-func (ss *shapesState) start() transform.Point {
-	if !ss.hasCurrent() {
-		panic(ss)
-	}
-	return ss.subpath[0]
-}
-
-func (ss *shapesState) current() transform.Point {
-	if !ss.hasCurrent() {
-		panic(ss)
-	}
-	return ss.subpath[len(ss.subpath)-1]
-}
-
-// moveTo starts a new subpath within the current path starting at the specified point. !@#$
+// moveTo starts a new subpath within the current path starting at the specified point.
+// `x` and `y` are in user coordinates.
 func (ss *shapesState) moveTo(x, y float64) {
-	ss.newSubPath()
-	ss.add(ss.devicePoint(x, y))
-	common.Log.Notice("moveTo(%.2f,%.2f subpath=%s", x, y, ss.subpath)
+	ss.freshSubpath = true
+	ss.firstPoint = ss.devicePoint(x, y)
+	if verboseShape {
+		common.Log.Info("moveTo(%.2f,%.2f current=%.2f", x, y, ss.firstPoint)
+	}
 }
 
+// lineTo adds a line segment to the current path starting at the current point.
+// `x` and `y` are in user coordinates.
 func (ss *shapesState) lineTo(x, y float64) {
-	if !ss.hasCurrent() {
-		ss.moveTo(x, y)
-		return
+	subpath := ss.establishSubpath()
+	p := ss.devicePoint(x, y)
+	if verboseShape {
+		common.Log.Info("lineTo(%.2f,%.2f p=%.2f subpath=%s", x, y, p, subpath)
 	}
-
-	ss.add(ss.devicePoint(x, y))
-	common.Log.Notice("lineTo(%.2f,%.2f subpath=%s", x, y, ss.subpath)
+	subpath.add(p)
 }
 
 // cubicTo adds a cubic bezier curve to the current path starting at the current point.
 // We only care about straight lines so we just update the current point.
 func (ss *shapesState) cubicTo(x1, y1, x2, y2, x3, y3 float64) {
-	ss.add(ss.devicePoint(x3, y3))
+	subpath := ss.establishSubpath()
+	subpath.add(ss.devicePoint(x3, y3))
 }
 
 // quadraticTo adds a quadratic bezier curve to the current path starting at the current point.
 // We only care about straight lines so we just update the current point.
 func (ss *shapesState) quadraticTo(x1, y1, x2, y2 float64) {
-	ss.add(ss.devicePoint(x2, y2))
+	subpath := ss.establishSubpath()
+	subpath.add(ss.devicePoint(x2, y2))
 }
 
-// DrawRectangle draws a rectangle of size w,h at position x,y.
+// drawRectangle draws a rectangle of size w,h at position x,y.
 func (ss *shapesState) drawRectangle(x, y, w, h float64) {
-	ll := ss.devicePoint(x, y)
-	ur := ss.devicePoint(x+w, y+h)
-	r := model.PdfRectangle{
-		Llx: ll.X,
-		Lly: ll.Y,
-		Urx: ur.X,
-		Ury: ur.Y,
+	if verboseShape {
+		ll := ss.devicePoint(x, y)
+		ur := ss.devicePoint(x+w, y+h)
+		r := model.PdfRectangle{Llx: ll.X, Lly: ll.Y, Urx: ur.X, Ury: ur.Y}
+		common.Log.Info("drawRectangle: %6.2f", r)
 	}
-	common.Log.Notice("drawRectangle: %6.2f", r)
 	ss.newSubPath()
 	ss.moveTo(x, y)
 	ss.lineTo(x+w, y)
@@ -1410,73 +1397,141 @@ func (ss *shapesState) drawRectangle(x, y, w, h float64) {
 	ss.closePath()
 }
 
+// newSubPath starts a new subpath within the current path.
 func (ss *shapesState) newSubPath() {
 	ss.clearPath()
-	common.Log.Notice("newSubPath:  %s", ss.subpath)
+	if verboseShape {
+		common.Log.Info("newSubPath: %s", ss)
+	}
 }
 
 // closePath adds a line segment from the current point to the beginning of the current subpath.
 // If there is no current point, this is a no-op.
 func (ss *shapesState) closePath() {
-	if !ss.hasCurrent() {
-		return
+	if ss.freshSubpath {
+		ss.subpaths = append(ss.subpaths, newSubpath(ss.firstPoint))
+		ss.freshSubpath = false
 	}
-	if !equalPoints(ss.current(), ss.start()) {
-		ss.add(ss.start())
+	ss.subpaths[len(ss.subpaths)-1].close()
+	if verboseShape {
+		common.Log.Info("closePath: %s", ss)
 	}
-	common.Log.Notice("closePath:  %s", ss.subpath)
-}
-
-func equalPoints(p1, p2 transform.Point) bool {
-	return p1.X == p2.X && p1.Y == p2.Y
 }
 
 // clearPath clears the current path. There is no current point after this operation.
 func (ss *shapesState) clearPath() {
-	ss.subpath = nil
+	ss.subpaths = nil
+	ss.freshSubpath = false
+	if verboseShape {
+		common.Log.Info("CLEAR: ss=%s", ss)
+	}
 }
 
 // stroke appends the current subpath to `strokes`.
-func (ss *shapesState) stroke(strokes *[]subpath) {
-	*strokes = append(*strokes, ss.subpath)
-	common.Log.Notice("STROKE: %d %s", len(*strokes), ss.subpath)
-}
-
-// fill appends the current subpath to `fills`.
-func (ss *shapesState) fill(fills *[]subpath) {
-	if len(ss.subpath) == 0 {
-		panic(ss)
+func (ss *shapesState) stroke(strokes *[]*subpath) {
+	*strokes = append(*strokes, ss.subpaths...)
+	if verboseShape {
+		common.Log.Info("STROKE: %d strokes ss=%s", len(*strokes), ss)
 	}
-	*fills = append(*fills, ss.subpath)
-	common.Log.Notice("FILL: %d %s", len(*fills), ss.subpath)
 }
 
-// devicePoint returns coordinates `x`, `y` as a transform.Point in device coordinates.
+// fill appends the current subpaths to `fills`.
+func (ss *shapesState) fill(fills *[]*subpath) {
+	*fills = append(*fills, ss.subpaths...)
+	if verboseShape {
+		common.Log.Info("FILL: %d fills (%d new) ss=%s", len(*fills), len(ss.subpaths), ss)
+		// for i, p := range *fills {
+		// 	fmt.Printf("%4d: %s\n", i, p)
+		// 	if i == 10 {
+		// 		break
+		// 	}
+		// }
+	}
+}
+
+// devicePoint returns user coordinates `x`, `y` as a transform.Point in device coordinates.
 func (ss *shapesState) devicePoint(x, y float64) transform.Point {
 	ctm := ss.parentCTM.Mult(ss.ctm)
 	x, y = ctm.Transform(x, y)
 	return transform.NewPoint(x, y)
 }
 
-func (ss *shapesState) add(points ...transform.Point) {
-	ss.subpath = append(ss.subpath, points...)
+// establishSubpath creates a new subpath if one hasn't already been established.
+// It reaturns the current subpath.
+func (ss *shapesState) establishSubpath() *subpath {
+	if lastPoint, established := ss.lastPoint(); !established {
+		ss.subpaths = append(ss.subpaths, newSubpath(lastPoint))
+	}
+	ss.freshSubpath = false
+	return ss.subpaths[len(ss.subpaths)-1]
+}
+
+// lastPoint returns the last point added to if there was one.
+// If there is a fresh point, return it.
+// Otherwise if the last subpath was closed, return its last point.
+// It neither of the above cases is true we must be in an established subpath.
+func (ss *shapesState) lastPoint() (transform.Point, bool) {
+	if ss.freshSubpath {
+		return ss.firstPoint, false
+	}
+	n := len(ss.subpaths)
+	if n > 0 && ss.subpaths[n-1].closed {
+		return ss.subpaths[n-1].last(), false
+	}
+	return transform.Point{}, true
 }
 
 // subpath is a list of points
-type subpath []transform.Point
+type subpath struct {
+	points []transform.Point // Path points in device coordinates.
+	closed bool              // Done with subpath?
+}
 
-// func (path *pointList) add(points ...transform.Point) {
-// 	*path = append(*path, points...)
-// }
+// newSubpath returns a subpath containing `p`.
+func newSubpath(p transform.Point) *subpath {
+	return &subpath{points: []transform.Point{p}}
+}
 
-// func (path *pointList) clear() {
-// 	*path = nil
-// }
+// last return the last point in `path`. Caller must check that `path` has at least one element
+// before calling.
+func (path *subpath) last() transform.Point {
+	return path.points[len(path.points)-1]
+}
+
+// add adds `points` to `path`.
+func (path *subpath) add(points ...transform.Point) {
+	path.points = append(path.points, points...)
+}
+
+func (path *subpath) clear() {
+	*path = subpath{}
+}
+
+func (path *subpath) close() {
+	if !equalPoints(path.points[0], path.last()) {
+		path.add(path.points[0])
+	}
+	path.closed = true
+	path.removeDuplicates()
+}
+
+func (path *subpath) removeDuplicates() {
+	if len(path.points) == 0 {
+		return
+	}
+	uniques := []transform.Point{path.points[0]}
+	for _, p := range path.points[1:] {
+		if !equalPoints(p, uniques[len(uniques)-1]) {
+			uniques = append(uniques, p)
+		}
+	}
+	path.points = uniques
+}
 
 func (path *subpath) String() string {
-	p := *path
+	p := path.points
 	n := len(p)
-	if n <= 7 {
+	if n <= 5 {
 		return fmt.Sprintf("%d: %6.2f", n, p)
 	}
 	return fmt.Sprintf("%d: %6.2f %6.2f ... %6.2f", n, p[0], p[1], p[n-1])

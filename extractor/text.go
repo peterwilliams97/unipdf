@@ -458,15 +458,21 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	fillRulings := makeFillRulings(pageText.fills)
 
 	common.Log.Notice("Strokes: %d", len(pageText.strokes))
-	common.Log.Notice("Stroke Rulings: %d", len(strokeRulings))
-	for i, v := range strokeRulings {
-		fmt.Printf("%4d: %s\n", i, asString(v))
+	common.Log.Notice("Stroke Grids: %d", len(strokeRulings))
+	for i, g := range strokeRulings {
+		fmt.Printf("%4d: %d rulings\n", i, len(g))
+		for i, v := range g {
+			fmt.Printf("%8d: %s\n", i, asString(v))
+		}
 	}
 
 	common.Log.Notice("Fills: %d", len(pageText.fills))
-	common.Log.Notice("Fill Rulings: %d", len(fillRulings))
-	for i, v := range fillRulings {
-		fmt.Printf("%4d: %s\n", i, asString(v))
+	common.Log.Notice("Fill Grids: %d", len(fillRulings))
+	for i, g := range fillRulings {
+		fmt.Printf("%4d: %d rulings\n", i, len(g))
+		for i, v := range g {
+			fmt.Printf("%8d: %s\n", i, asString(v))
+		}
 	}
 
 	return pageText, state.numChars, state.numMisses, err

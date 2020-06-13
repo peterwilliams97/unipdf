@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/internal/transform"
@@ -86,92 +87,6 @@ func equalRulings(v1, v2 ruling) bool {
 		v1.primary() == v2.primary() &&
 		v1.lo() == v2.lo() &&
 		v1.hi() == v2.hi()
-}
-
-func (vecs rulingList) removeDuplicates() rulingList {
-	if len(vecs) == 0 {
-		return nil
-	}
-	uniques := rulingList{vecs[0]}
-	for _, v := range vecs[1:] {
-		if equalRulings(v, uniques[len(uniques)-1]) {
-			continue
-		}
-		uniques = append(uniques, v)
-	}
-	return uniques
-}
-
-func (vecs rulingList) collasce() rulingList {
-	if len(vecs) == 0 {
-		return nil
-	}
-	v0 := newGenericRuling(vecs[0])
-	var uniques rulingList
-	merging := false
-	for i, v := range vecs[1:] {
-		merging = v0.kind() == v.kind() && isZero(v0.primary()-v.primary()) && v.lo() <= v0.hi()+1.0
-		if merging {
-			v0._hi = v.hi()
-			if v0._hi < v0._lo {
-				panic(asString(v0))
-			}
-		} else {
-			fmt.Printf("%4d:\n\t%s ==\n\t%s\n", i, asString(v0), asString(v))
-			uniques = append(uniques, v0)
-			v0 = newGenericRuling(v)
-		}
-	}
-
-	uniques = append(uniques, v0)
-
-	return uniques
-}
-
-func (vecs rulingList) sort() {
-	sort.Slice(vecs, func(i, j int) bool {
-		vi, vj := vecs[i], vecs[j]
-		ki, kj := vi.kind(), vj.kind()
-		if ki != kj {
-			return ki > kj
-		}
-		order := func(b bool) bool {
-			if ki == rulingHor {
-				return b
-			}
-			return !b
-		}
-
-		mi, mj := vi.primary(), vj.primary()
-		if mi != mj {
-			return order(mi > mj)
-		}
-		mi, mj = vi.lo(), vj.lo()
-		if mi != mj {
-			return order(mi < mj)
-		}
-		return order(vi.hi() < vj.hi())
-	})
-}
-
-func (vecs rulingList) sortStrict() {
-	sort.Slice(vecs, func(i, j int) bool {
-		vi, vj := vecs[i], vecs[j]
-		ki, kj := vi.kind(), vj.kind()
-		if ki != kj {
-			return ki > kj
-		}
-
-		mi, mj := vi.primary(), vj.primary()
-		if mi != mj {
-			return mi < mj
-		}
-		mi, mj = vi.lo(), vj.lo()
-		if mi != mj {
-			return mi < mj
-		}
-		return mi < mj
-	})
 }
 
 type edgeRuling struct {
@@ -279,7 +194,7 @@ func bboxKind(r model.PdfRectangle) rulingKind {
 	} else if dy >= rulingSignificant && dx <= rulingTol {
 		kind = rulingVer
 	} else {
-		common.Log.Error("bboxKind: %6.2f %6.2f x %6.2f", r, r.Width(), r.Height())
+		// common.Log.Error("bboxKind: %6.2f %6.2f x %6.2f", r, r.Width(), r.Height())
 	}
 	return kind
 }
@@ -373,12 +288,13 @@ func (v edgeRuling) yDelta() float64 {
 	return math.Abs(v.p2.Y - v.p2.Y)
 }
 
-func makeStrokeRulings(strokes []*subpath) rulingList {
+func makeStrokeRulings(strokes []*subpath) []rulingList {
 	var vecs rulingList
 	for _, path := range strokes {
 		vecs = append(vecs, path._strokeRulings()...)
 	}
-	return vecs.tidied("strokes")
+	vecs = vecs.tidied("strokes")
+	return vecs.toGrids()
 }
 
 func (path *subpath) _strokeRulings() rulingList {
@@ -395,7 +311,7 @@ func (path *subpath) _strokeRulings() rulingList {
 	return vecs
 }
 
-func makeFillRulings(fills []*subpath) rulingList {
+func makeFillRulings(fills []*subpath) []rulingList {
 	var vecs rulingList
 	for _, path := range fills {
 		if !path.isRectPath() {
@@ -411,7 +327,9 @@ func makeFillRulings(fills []*subpath) rulingList {
 		}
 		vecs = append(vecs, v)
 	}
-	return vecs.tidied("fills")
+
+	vecs = vecs.tidied("fills")
+	return vecs.toGrids()
 }
 
 func (vecs rulingList) tidied(title string) rulingList {
@@ -422,6 +340,231 @@ func (vecs rulingList) tidied(title string) rulingList {
 	coallesced.sort()
 	common.Log.Info("tidied %s: %d->%d->%d", title, len(vecs), len(uniques), len(coallesced))
 	return coallesced
+}
+
+func (vecs rulingList) removeDuplicates() rulingList {
+	if len(vecs) == 0 {
+		return nil
+	}
+	uniques := rulingList{vecs[0]}
+	for _, v := range vecs[1:] {
+		if equalRulings(v, uniques[len(uniques)-1]) {
+			continue
+		}
+		uniques = append(uniques, v)
+	}
+	return uniques
+}
+
+func (vecs rulingList) collasce() rulingList {
+	if len(vecs) == 0 {
+		return nil
+	}
+	v0 := newGenericRuling(vecs[0])
+	var uniques rulingList
+	merging := false
+	for _, v := range vecs[1:] {
+		merging = v0.kind() == v.kind() && isZero(v0.primary()-v.primary()) && v.lo() <= v0.hi()+1.0
+		if merging {
+			v0._hi = v.hi()
+			if v0._hi < v0._lo {
+				panic(asString(v0))
+			}
+		} else {
+			// fmt.Printf("%4d:\n\t%s ==\n\t%s\n", i, asString(v0), asString(v))
+			uniques = append(uniques, v0)
+			v0 = newGenericRuling(v)
+		}
+	}
+
+	uniques = append(uniques, v0)
+
+	return uniques
+}
+
+func (vecs rulingList) _toGrids() []rulingList {
+	if len(vecs) == 0 {
+		return nil
+	}
+	grids := []rulingList{rulingList{vecs[0]}}
+outer:
+	for _, v := range vecs[1:] {
+		for i, g := range grids {
+			if g.intersect(v) {
+				grids[i] = append(g, v)
+				continue outer
+			}
+		}
+		grids = append(grids, rulingList{v})
+	}
+	return grids
+}
+
+func (vecs rulingList) toGrids() []rulingList {
+	if len(vecs) == 0 {
+		return nil
+	}
+	var verts, horzs []int
+	for i, v := range vecs {
+		switch v.kind() {
+		case rulingVer:
+			verts = append(verts, i)
+		case rulingHor:
+			horzs = append(horzs, i)
+		}
+	}
+	// key := func(i,j) int { return 1000*i + j}
+	intersects := map[int]map[int]bool{}
+	for _, i := range verts {
+		intersects[i] = map[int]bool{}
+	}
+	for _, j := range horzs {
+		intersects[j] = map[int]bool{}
+	}
+	common.Log.Notice("compute intersections ----------")
+	for _, v := range verts {
+		for _, h := range horzs {
+			fmt.Printf("%4d %2d:", v, h)
+			if rulingsIntersect(vecs[v], vecs[h]) {
+				intersects[v][h] = true
+				intersects[h][v] = true
+			}
+		}
+	}
+
+	var keys []int
+	for i := range intersects {
+		keys = append(keys, i)
+	}
+	sort.Ints(keys)
+	common.Log.Notice("intersections ----------")
+	for _, i := range keys {
+		row := intersects[i]
+		var keys2 []int
+		for j := range row {
+			keys2 = append(keys2, j)
+		}
+		sort.Ints(keys2)
+		s := fmt.Sprintf("%2d", keys2)
+		fmt.Printf("%4d: %-40s %s\n", i, s, asString(vecs[i]))
+	}
+
+	findConnections := func(i00 int) map[int]bool {
+		connections := map[int]bool{}
+		visited := map[int]bool{}
+		var dfs func(i0, depth int)
+		dfs = func(i0, depth int) {
+			// fmt.Printf("  %sdfs i0=%2d\n", depthString(depth), i0)
+			if visited[i0] {
+				return
+			}
+			visited[i0] = true
+			if depth > len(vecs)*2 {
+				panic(depth)
+			}
+			for i := range vecs {
+				if visited[i] {
+					continue
+				}
+				if !intersects[i][i0] {
+					continue
+				}
+				connections[i] = true
+				// fmt.Printf("    %si=%2d %t\n", depthString(depth), i, connections[i])
+				// if !connections[i] {
+				// 	continue
+				// }
+			}
+			for i := range vecs {
+				if !connections[i] {
+					continue
+				}
+				dfs(i, depth+1)
+			}
+		}
+		dfs(i00, 0)
+		return connections
+	}
+
+	connections := map[int]map[int]bool{}
+	for i := range vecs {
+		connections[i] = findConnections(i)
+	}
+
+	common.Log.Notice("connections ----------")
+	for i := range vecs {
+		fmt.Printf("%4d: %v\n", i, connections[i])
+	}
+	// os.Exit(1)
+
+	igrids := [][]int{[]int{0}}
+outer:
+	for iv := 1; iv < len(vecs); iv++ {
+		// fmt.Printf("%4d: == igrids=%2d\n", iv, len(igrids))
+		for ig, g := range igrids {
+			// fmt.Printf("%8d: %2d\n", ig, g)
+			for _, i := range g {
+				if /*i != iv && */ connections[i][iv] {
+					// fmt.Printf("%12d: %2d\n", i, iv)
+					igrids[ig] = append(g, iv)
+					continue outer
+				}
+			}
+		}
+		igrids = append(igrids, []int{iv})
+	}
+
+	common.Log.Info("igrids -----------------------")
+	for i, g := range igrids {
+		fmt.Printf("%4d: %2d\n", i, g)
+	}
+
+	var grids []rulingList
+	for _, g := range igrids {
+		var grid rulingList
+		for _, i := range g {
+			grid = append(grid, vecs[i])
+		}
+		grids = append(grids, grid)
+	}
+
+	return grids
+	var actualGrids []rulingList
+	for _, grid := range grids {
+		if grid.isActualGrid() {
+			actualGrids = append(actualGrids, grid)
+		}
+	}
+	return actualGrids
+}
+
+func (vecs rulingList) isActualGrid() bool {
+	numVert, numHorz := 0, 0
+	for _, v := range vecs {
+		switch v.kind() {
+		case rulingVer:
+			numVert++
+		case rulingHor:
+			numHorz++
+		}
+	}
+	return numVert >= 1 && numHorz >= 1
+}
+
+func depthString(depth int) string {
+	parts := make([]string, depth)
+	for i := range parts {
+		parts[i] = "    "
+	}
+	return strings.Join(parts, "")
+}
+func (vecs rulingList) intersect(v0 ruling) bool {
+	for _, v := range vecs {
+		if rulingsIntersect(v0, v) {
+			return true
+		}
+	}
+	return false
 }
 
 func (path *subpath) isRectPath() bool {
@@ -441,4 +584,64 @@ func (path *subpath) isRectPath() bool {
 
 func equalPoints(p1, p2 transform.Point) bool {
 	return p1.X == p2.X && p1.Y == p2.Y
+}
+
+func rulingsIntersect(v1, v2 ruling) bool {
+	othogonal := (v1.kind() == rulingVer && v2.kind() == rulingHor) ||
+		(v2.kind() == rulingVer && v1.kind() == rulingHor)
+	overlap := func(v1, v2 ruling) bool {
+		return v1.lo() <= v2.primary() && v2.primary() <= v1.hi()
+	}
+	// if othogonal && !(overlap(v1, v2) && overlap(v2, v1)) {
+	// 	fmt.Printf("%5t %5t\n\t\t%s\n\t\t%s\n",
+	// 		overlap(v1, v2), overlap(v2, v1),
+	// 		asString(v1), asString(v2))
+	// }
+	return othogonal && overlap(v1, v2) && overlap(v2, v1)
+}
+
+func (vecs rulingList) sort() {
+	sort.Slice(vecs, func(i, j int) bool {
+		vi, vj := vecs[i], vecs[j]
+		ki, kj := vi.kind(), vj.kind()
+		if ki != kj {
+			return ki > kj
+		}
+		order := func(b bool) bool {
+			if ki == rulingHor {
+				return b
+			}
+			return !b
+		}
+
+		mi, mj := vi.primary(), vj.primary()
+		if mi != mj {
+			return order(mi > mj)
+		}
+		mi, mj = vi.lo(), vj.lo()
+		if mi != mj {
+			return order(mi < mj)
+		}
+		return order(vi.hi() < vj.hi())
+	})
+}
+
+func (vecs rulingList) sortStrict() {
+	sort.Slice(vecs, func(i, j int) bool {
+		vi, vj := vecs[i], vecs[j]
+		ki, kj := vi.kind(), vj.kind()
+		if ki != kj {
+			return ki > kj
+		}
+
+		mi, mj := vi.primary(), vj.primary()
+		if mi != mj {
+			return mi < mj
+		}
+		mi, mj = vi.lo(), vj.lo()
+		if mi != mj {
+			return mi < mj
+		}
+		return mi < mj
+	})
 }

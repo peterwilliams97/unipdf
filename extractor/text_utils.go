@@ -10,6 +10,9 @@ import (
 	"math"
 	"path/filepath"
 	"runtime"
+	"sort"
+
+	"github.com/unidoc/unipdf/v3/internal/transform"
 )
 
 // serial is used to add serial numbers to all text* instances.
@@ -39,6 +42,20 @@ func isZero(x float64) bool {
 	return math.Abs(x) < TOL
 }
 
+const grain = 0.0001
+
+func granularize(paths []*subpath) {
+	for _, path := range paths {
+		for i, p := range path.points {
+			path.points[i] = transform.Point{X: round(p.X), Y: round(p.Y)}
+		}
+	}
+}
+
+func round(x float64) float64 {
+	return grain * math.Round(x/grain)
+}
+
 // minInt return the lesser of `a` and `b`.
 func minInt(a, b int) int {
 	if a < b {
@@ -55,7 +72,7 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// fileLine printed out a file:line string for the caller `skip` levels up the call stack.
+// fileLine prints out a file:line string for the caller `skip` levels up the call stack.
 func fileLine(skip int, doSecond bool) string {
 	_, file, line, ok := runtime.Caller(skip + 1)
 	if !ok {
@@ -70,4 +87,19 @@ func fileLine(skip int, doSecond bool) string {
 	}
 	_, _, line2, _ := runtime.Caller(skip + 2)
 	return fmt.Sprintf("%s:%-4d", depth, line2)
+}
+
+// equalPoints returns true if `p1` and `p2` are in the same location.
+func equalPoints(p1, p2 transform.Point) bool {
+	return p1.X == p2.X && p1.Y == p2.Y
+}
+
+// makeOrdering return an ordering over `n` ints  that is sorted by `comp`.
+func makeOrdering(n int, comp func(int, int) bool) []int {
+	ordering := make([]int, n)
+	for i := range ordering {
+		ordering[i] = i
+	}
+	sort.Slice(ordering, func(i, j int) bool { return comp(ordering[i], ordering[j]) })
+	return ordering
 }

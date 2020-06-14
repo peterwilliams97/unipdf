@@ -15,20 +15,20 @@ import (
 	"github.com/unidoc/unipdf/v3/model"
 )
 
-func (r *genericRuling) kind() rulingKind { return r._kind }
-func (r *genericRuling) primary() float64 { return r._primary }
-func (r *genericRuling) lo() float64      { return r._lo }
-func (r *genericRuling) hi() float64      { return r._hi }
+// func (r *genericRuling) kind() rulingKind { return r._kind }
+// func (r *genericRuling) primary() float64 { return r._primary }
+// func (r *genericRuling) lo() float64      { return r._lo }
+// func (r *genericRuling) hi() float64      { return r._hi }
 
 type rulingKind int
 type rulingList []*genericRuling
 
-type ruling interface {
-	kind() rulingKind
-	primary() float64
-	lo() float64
-	hi() float64
-}
+// type ruling interface {
+// 	kind() rulingKind
+// 	primary() float64
+// 	lo() float64
+// 	hi() float64
+// }
 
 type genericRuling struct {
 	_kind    rulingKind
@@ -52,7 +52,7 @@ func makeStrokeGrids(strokes []*subpath) []rulingList {
 		}
 		p1 := path.points[0]
 		for _, p2 := range path.points[1:] {
-			if v := makeEdgeRuling(p1, p2); v.kind() != rulingNil {
+			if v := makeEdgeRuling(p1, p2); v._kind != rulingNil {
 				vecs = append(vecs, v)
 			}
 			p1 = p2
@@ -69,7 +69,7 @@ func makeFillGrids(fills []*subpath) []rulingList {
 		if !path.isRectPath() {
 			continue
 		}
-		if v, ok := path.makeBboxRuling(); ok && v.kind() != rulingNil {
+		if v, ok := path.makeBboxRuling(); ok && v._kind != rulingNil {
 			vecs = append(vecs, v)
 		}
 	}
@@ -82,18 +82,122 @@ type edgeRuling struct {
 	_kind  rulingKind
 }
 
+func (v edgeRuling) asRuling() *genericRuling {
+	r := genericRuling{_kind: v._kind}
+	switch v._kind {
+	case rulingVer:
+		r._primary = v.xMean()
+		r._lo = math.Min(v.p1.Y, v.p2.Y)
+		r._hi = math.Max(v.p1.Y, v.p2.Y)
+	case rulingHor:
+		r._primary = v.yMean()
+		r._lo = math.Min(v.p1.X, v.p2.X)
+		r._hi = math.Max(v.p1.X, v.p2.X)
+	default:
+		panic(fmt.Errorf("bad primary kind=%d", v._kind))
+	}
+	return &r
+}
+
+// func (v edgeRuling) kind() rulingKind { return v._kind }
+// func (v bboxRuling) kind() rulingKind { return v._kind }
+
+// func (v edgeRuling) primary() float64 {
+// 	switch v._kind {
+// 	case rulingVer:
+// 		return v.xMean()
+// 	case rulingHor:
+// 		return v.yMean()
+// 	default:
+// 		panic(fmt.Errorf("bad primary kind=%d", v._kind))
+// 	}
+// }
+
+// func (v edgeRuling) lo() float64 {
+// 	switch v._kind {
+// 	case rulingVer:
+// 		return math.Min(v.p1.Y, v.p2.Y)
+// 	case rulingHor:
+// 		return math.Min(v.p1.X, v.p2.X)
+// 	default:
+// 		panic(v)
+// 	}
+// }
+
+// func (v edgeRuling) hi() float64 {
+// 	switch v._kind {
+// 	case rulingVer:
+// 		return math.Max(v.p1.Y, v.p2.Y)
+// 	case rulingHor:
+// 		return math.Max(v.p1.X, v.p2.X)
+// 	default:
+// 		panic(v)
+// 	}
+// }
+
 func makeEdgeRuling(p1, p2 transform.Point) *genericRuling {
 	v := edgeRuling{p1: p1, p2: p2, _kind: edgeKind(p1, p2)}
 	if v._kind == rulingNil {
 		return &genericRuling{}
 	}
-	return newGenericRulingNoPanic(v)
+	return v.asRuling()
 }
 
 type bboxRuling struct {
 	model.PdfRectangle
 	_kind rulingKind
 }
+
+func (v bboxRuling) asRuling() *genericRuling {
+	r := genericRuling{_kind: v._kind}
+
+	switch v._kind {
+	case rulingVer:
+		r._primary = 0.5 * (v.Llx + v.Urx)
+		r._lo = v.Lly
+		r._hi = v.Ury
+	case rulingHor:
+		r._primary = 0.5 * (v.Lly + v.Ury)
+		r._lo = v.Llx
+		r._hi = v.Urx
+	default:
+		panic(v)
+	}
+	return &r
+}
+
+// // {145.88 146.62 2082.75 2106.00}   vertical x=146.25 y=145.88 - 146.62
+// func (v bboxRuling) primary() float64 {
+// 	switch v._kind {
+// 	case rulingVer:
+// 		return 0.5 * (v.Llx + v.Urx)
+// 	case rulingHor:
+// 		return 0.5 * (v.Lly + v.Ury)
+// 	default:
+// 		panic(v)
+// 	}
+// }
+// func (v bboxRuling) lo() float64 {
+// 	switch v._kind {
+// 	case rulingVer:
+// 		return v.Lly
+// 	case rulingHor:
+// 		return v.Llx
+// 	default:
+// 		panic(v)
+// 	}
+// }
+
+// func (v bboxRuling) hi() float64 {
+// 	switch v._kind {
+// 	case rulingVer:
+// 		return v.Ury
+// 	case rulingHor:
+// 		return v.Urx
+// 	default:
+// 		panic(v)
+// 	}
+// }
 
 func (path *subpath) makeBboxRuling() (*genericRuling, bool) {
 	points := path.points[:4]
@@ -169,26 +273,26 @@ func (path *subpath) makeBboxRuling() (*genericRuling, bool) {
 	if v._kind == rulingNil {
 		return &genericRuling{}, false
 	}
-	return newGenericRulingNoPanic(v), true
+	return v.asRuling(), true
 
 }
 
-func newGenericRuling(v ruling) *genericRuling {
-	v0 := newGenericRulingNoPanic(v)
-	if v0._hi < v0._lo {
-		panic(asString(v0))
-	}
-	return v0
-}
+// func newGenericRuling(v ruling) *genericRuling {
+// 	v0 := newGenericRulingNoPanic(v)
+// 	if v0._hi < v0._lo {
+// 		panic(asString(v0))
+// 	}
+// 	return v0
+// }
 
-func newGenericRulingNoPanic(v ruling) *genericRuling {
-	return &genericRuling{
-		_kind:    v.kind(),
-		_primary: v.primary(),
-		_lo:      v.lo(),
-		_hi:      v.hi(),
-	}
-}
+// func newGenericRulingNoPanic(v ruling) *genericRuling {
+// 	return &genericRuling{
+// 		_kind:    v.kind(),
+// 		_primary: v._primary,
+// 		_lo:      v.lo(),
+// 		_hi:      v.hi(),
+// 	}
+// }
 
 func (r rulingKind) String() string {
 	s, ok := rulingString[r]
@@ -207,23 +311,23 @@ var rulingString = map[rulingKind]string{
 const rulingTol = 1.0
 const rulingSignificant = 10.0
 
-func asString(v ruling) string {
-	if v.kind() == rulingNil {
+func asString(v *genericRuling) string {
+	if v._kind == rulingNil {
 		return "NOT RULING"
 	}
 	pri, sec := "x", "y"
-	if v.kind() == rulingHor {
+	if v._kind == rulingHor {
 		pri, sec = "y", "x"
 	}
 	return fmt.Sprintf("%10s %s=%6.2f %s=%6.2f - %6.2f (%6.2f)",
-		v.kind(), pri, v.primary(), sec, v.lo(), v.hi(), v.hi()-v.lo())
+		v._kind, pri, v._primary, sec, v._lo, v._hi, v._hi-v._lo)
 }
 
-func equalRulings(v1, v2 ruling) bool {
-	return v1.kind() == v2.kind() &&
-		v1.primary() == v2.primary() &&
-		v1.lo() == v2.lo() &&
-		v1.hi() == v2.hi()
+func equalRulings(v1, v2 *genericRuling) bool {
+	return v1._kind == v2._kind &&
+		v1._primary == v2._primary &&
+		v1._lo == v2._lo &&
+		v1._hi == v2._hi
 }
 
 func edgeKind(p1, p2 transform.Point) rulingKind {
@@ -250,75 +354,6 @@ func bboxKind(r model.PdfRectangle) rulingKind {
 		// common.Log.Error("bboxKind: %6.2f %6.2f x %6.2f", r, r.Width(), r.Height())
 	}
 	return kind
-}
-
-func (v edgeRuling) kind() rulingKind { return v._kind }
-func (v bboxRuling) kind() rulingKind { return v._kind }
-
-func (v edgeRuling) primary() float64 {
-	switch v._kind {
-	case rulingVer:
-		return v.xMean()
-	case rulingHor:
-		return v.yMean()
-	default:
-		panic(fmt.Errorf("bad primary kind=%d", v._kind))
-	}
-}
-
-func (v edgeRuling) lo() float64 {
-	switch v._kind {
-	case rulingVer:
-		return math.Min(v.p1.Y, v.p2.Y)
-	case rulingHor:
-		return math.Min(v.p1.X, v.p2.X)
-	default:
-		panic(v)
-	}
-}
-
-func (v edgeRuling) hi() float64 {
-	switch v._kind {
-	case rulingVer:
-		return math.Max(v.p1.Y, v.p2.Y)
-	case rulingHor:
-		return math.Max(v.p1.X, v.p2.X)
-	default:
-		panic(v)
-	}
-}
-
-// {145.88 146.62 2082.75 2106.00}   vertical x=146.25 y=145.88 - 146.62
-func (v bboxRuling) primary() float64 {
-	switch v._kind {
-	case rulingVer:
-		return 0.5 * (v.Llx + v.Urx)
-	case rulingHor:
-		return 0.5 * (v.Lly + v.Ury)
-	default:
-		panic(v)
-	}
-}
-func (v bboxRuling) lo() float64 {
-	switch v._kind {
-	case rulingVer:
-		return v.Lly
-	case rulingHor:
-		return v.Llx
-	default:
-		panic(v)
-	}
-}
-
-func (v bboxRuling) hi() float64 {
-	switch v._kind {
-	case rulingVer:
-		return v.Ury
-	case rulingHor:
-		return v.Urx
-	default:
-		panic(v)
-	}
 }
 
 func (v edgeRuling) xMean() float64 {
@@ -358,7 +393,7 @@ func (v edgeRuling) yDelta() float64 {
 
 func (vecs rulingList) dirty() (string, bool) {
 	for _, v := range vecs {
-		if !(v.kind() == rulingHor || v.kind() == rulingVer) {
+		if !(v._kind == rulingHor || v._kind == rulingVer) {
 			return asString(v), true
 		}
 	}
@@ -408,16 +443,16 @@ func (vecs rulingList) collasce() rulingList {
 		return nil
 	}
 	vecs.sortStrict()
-	v0 := newGenericRuling(vecs[0])
+	v0 := vecs[0]
 	var uniques rulingList
 	for _, v := range vecs[1:] {
 		// if v0._hi < v0._lo {
 		// 	panic(fmt.Errorf("v0._hi < v0._lo\n\tv0=%s\n\t v=%s", asString(v00), asString(v)))
 		// }
-		merging := v0.kind() == v.kind() && v0.primary() == v.primary() && v.lo() <= v0.hi()+1.0
+		merging := v0._kind == v._kind && v0._primary == v._primary && v._lo <= v0._hi+1.0
 		if merging {
 			v00 := *v0
-			v0._hi = v.hi()
+			v0._hi = v._hi
 			if v0._hi < v0._lo {
 				panic(fmt.Errorf("v0._hi < v0._lo\n\tv0=%s\n\t v=%s\n\t ->%s",
 					asString(&v00), asString(v), asString(v0)))
@@ -425,7 +460,7 @@ func (vecs rulingList) collasce() rulingList {
 		} else {
 			// fmt.Printf("%4d:\n\t%s ==\n\t%s\n", i, asString(v0), asString(v))
 			uniques = append(uniques, v0)
-			v0 = newGenericRuling(v)
+			v0 = v
 		}
 	}
 
@@ -458,7 +493,7 @@ func (vecs rulingList) toGrids() []rulingList {
 	}
 	var verts, horzs []int
 	for i, v := range vecs {
-		switch v.kind() {
+		switch v._kind {
 		case rulingVer:
 			verts = append(verts, i)
 		case rulingHor:
@@ -592,7 +627,7 @@ outer:
 func (vecs rulingList) isActualGrid() bool {
 	numVert, numHorz := 0, 0
 	for _, v := range vecs {
-		switch v.kind() {
+		switch v._kind {
 		case rulingVer:
 			numVert++
 		case rulingHor:
@@ -609,7 +644,8 @@ func depthString(depth int) string {
 	}
 	return strings.Join(parts, "")
 }
-func (vecs rulingList) intersect(v0 ruling) bool {
+
+func (vecs rulingList) intersect(v0 *genericRuling) bool {
 	for _, v := range vecs {
 		if rulingsIntersect(v0, v) {
 			return true
@@ -637,11 +673,11 @@ func equalPoints(p1, p2 transform.Point) bool {
 	return p1.X == p2.X && p1.Y == p2.Y
 }
 
-func rulingsIntersect(v1, v2 ruling) bool {
-	othogonal := (v1.kind() == rulingVer && v2.kind() == rulingHor) ||
-		(v2.kind() == rulingVer && v1.kind() == rulingHor)
-	overlap := func(v1, v2 ruling) bool {
-		return v1.lo() <= v2.primary() && v2.primary() <= v1.hi()
+func rulingsIntersect(v1, v2 *genericRuling) bool {
+	othogonal := (v1._kind == rulingVer && v2._kind == rulingHor) ||
+		(v2._kind == rulingVer && v1._kind == rulingHor)
+	overlap := func(v1, v2 *genericRuling) bool {
+		return v1._lo <= v2._primary && v2._primary <= v1._hi
 	}
 	// if othogonal && !(overlap(v1, v2) && overlap(v2, v1)) {
 	// 	fmt.Printf("%5t %5t\n\t\t%s\n\t\t%s\n",
@@ -654,7 +690,7 @@ func rulingsIntersect(v1, v2 ruling) bool {
 func (vecs rulingList) sort() {
 	sort.Slice(vecs, func(i, j int) bool {
 		vi, vj := vecs[i], vecs[j]
-		ki, kj := vi.kind(), vj.kind()
+		ki, kj := vi._kind, vj._kind
 		if ki != kj {
 			return ki > kj
 		}
@@ -668,34 +704,34 @@ func (vecs rulingList) sort() {
 			return !b
 		}
 
-		mi, mj := vi.primary(), vj.primary()
+		mi, mj := vi._primary, vj._primary
 		if mi != mj {
 			return order(mi > mj)
 		}
-		mi, mj = vi.lo(), vj.lo()
+		mi, mj = vi._lo, vj._lo
 		if mi != mj {
 			return order(mi < mj)
 		}
-		return order(vi.hi() < vj.hi())
+		return order(vi._hi < vj._hi)
 	})
 }
 
 func (vecs rulingList) sortStrict() {
 	sort.Slice(vecs, func(i, j int) bool {
 		vi, vj := vecs[i], vecs[j]
-		ki, kj := vi.kind(), vj.kind()
+		ki, kj := vi._kind, vj._kind
 		if ki != kj {
 			return ki > kj
 		}
 
-		mi, mj := vi.primary(), vj.primary()
+		mi, mj := vi._primary, vj._primary
 		if mi != mj {
 			return mi < mj
 		}
-		mi, mj = vi.lo(), vj.lo()
+		mi, mj = vi._lo, vj._lo
 		if mi != mj {
 			return mi < mj
 		}
-		return vi.hi() < vj.hi()
+		return vi._hi < vj._hi
 	})
 }

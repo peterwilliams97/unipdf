@@ -454,24 +454,28 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 		common.Log.Debug("ERROR: Processing: err=%v", err)
 	}
 
-	strokeRulings := makeStrokeRulings(pageText.strokes)
-	fillRulings := makeFillRulings(pageText.fills)
+	strokeRulings := makeStrokeGrids(pageText.strokes)
+	fillRulings := makeFillGrids(pageText.fills)
 
-	common.Log.Notice("Strokes: %d", len(pageText.strokes))
-	common.Log.Notice("Stroke Grids: %d", len(strokeRulings))
-	for i, g := range strokeRulings {
-		fmt.Printf("%4d: %d rulings\n", i, len(g))
-		for i, v := range g {
-			fmt.Printf("%8d: %s\n", i, asString(v))
+	if len(strokeRulings) > 0 {
+		common.Log.Notice("Strokes: %d", len(pageText.strokes))
+		common.Log.Notice("Stroke Grids: %d", len(strokeRulings))
+		for i, g := range strokeRulings {
+			fmt.Printf("%4d: %d rulings\n", i, len(g))
+			for i, v := range g {
+				fmt.Printf("%8d: %s\n", i, asString(v))
+			}
 		}
 	}
 
-	common.Log.Notice("Fills: %d", len(pageText.fills))
-	common.Log.Notice("Fill Grids: %d", len(fillRulings))
-	for i, g := range fillRulings {
-		fmt.Printf("%4d: %d rulings\n", i, len(g))
-		for i, v := range g {
-			fmt.Printf("%8d: %s\n", i, asString(v))
+	if len(fillRulings) > 0 {
+		common.Log.Notice("Fills: %d", len(pageText.fills))
+		common.Log.Notice("Fill Grids: %d", len(fillRulings))
+		for i, g := range fillRulings {
+			fmt.Printf("%4d: %d rulings\n", i, len(g))
+			for i, v := range g {
+				fmt.Printf("%8d: %s\n", i, asString(v))
+			}
 		}
 	}
 

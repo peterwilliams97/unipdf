@@ -463,7 +463,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 		for i, g := range strokeRulings {
 			fmt.Printf("%4d: %d rulings\n", i, len(g))
 			for i, v := range g {
-				fmt.Printf("%8d: %s\n", i, asString(v))
+				fmt.Printf("%8d: %s\n", i, v)
 			}
 		}
 	}
@@ -474,7 +474,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 		for i, g := range fillRulings {
 			fmt.Printf("%4d: %d rulings\n", i, len(g))
 			for i, v := range g {
-				fmt.Printf("%8d: %s\n", i, asString(v))
+				fmt.Printf("%8d: %s\n", i, v)
 			}
 		}
 	}

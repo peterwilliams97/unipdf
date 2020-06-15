@@ -206,7 +206,7 @@ var fileExtractionTests = []struct {
 }{
 	{filename: "reader.pdf",
 		pageTerms: map[int][]string{
-			1: []string{"A Research UNIX Reader:",
+			1: {"A Research UNIX Reader:",
 				"Annotated Excerpts from the Programmer’s Manual,",
 				"1. Introduction",
 				"To keep the size of this report",
@@ -218,60 +218,60 @@ var fileExtractionTests = []struct {
 	// {filename: "000026.pdf",
 	// 	pageTerms: map[int][]string{
 	// 		1: []string{"Fresh Flower",
-	// 			"Care & Handling ",
+	// 			"Care & Handling",
 	// 		},
 	// 	},
 	// },
 	{filename: "search_sim_key.pdf",
 		pageTerms: map[int][]string{
-			2: []string{"A cryptographic scheme which enables searching",
+			2: {"A cryptographic scheme which enables searching",
 				"Untrusted server should not be able to search for a word without authorization",
 			},
 		},
 	},
 	{filename: "Theil_inequality.pdf",
 		pageTerms: map[int][]string{
-			1: []string{"London School of Economics and Political Science"},
-			4: []string{"The purpose of this paper is to set Theil’s approach"},
+			1: {"London School of Economics and Political Science"},
+			4: {"The purpose of this paper is to set Theil’s approach"},
 		},
 	},
 	{filename: "8207.pdf",
 		pageTerms: map[int][]string{
-			1: []string{"In building graphic systems for use with raster devices,"},
-			2: []string{"The imaging model specifies how geometric shapes and colors are"},
-			3: []string{"The transformation matrix T that maps application defined"},
+			1: {"In building graphic systems for use with raster devices,"},
+			2: {"The imaging model specifies how geometric shapes and colors are"},
+			3: {"The transformation matrix T that maps application defined"},
 		},
 	},
 	{filename: "ling-2013-0040ad.pdf",
 		pageTerms: map[int][]string{
-			1: []string{"Although the linguistic variation among texts is continuous"},
-			2: []string{"distinctions. For example, much of the research on spoken/written"},
+			1: {"Although the linguistic variation among texts is continuous"},
+			2: {"distinctions. For example, much of the research on spoken/written"},
 		},
 	},
 	{filename: "26-Hazard-Thermal-environment.pdf",
 		pageTerms: map[int][]string{
-			1: []string{"OHS Body of Knowledge"},
-			2: []string{"Copyright notice and licence terms"},
+			1: {"OHS Body of Knowledge"},
+			2: {"Copyright notice and licence terms"},
 		},
 	},
 	{filename: "Threshold_survey.pdf",
 		pageTerms: map[int][]string{
-			1: []string{"clustering, entropy, object attributes, spatial correlation, and local"},
+			1: {"clustering, entropy, object attributes, spatial correlation, and local"},
 		},
 	},
 	{filename: "circ2.pdf",
 		pageTerms: map[int][]string{
-			1: []string{"Understanding and complying with copyright law can be a challenge"},
+			1: {"Understanding and complying with copyright law can be a challenge"},
 		},
 	},
 	{filename: "rare_word.pdf",
 		pageTerms: map[int][]string{
-			6: []string{"words in the test set, we increase the BLEU score"},
+			6: {"words in the test set, we increase the BLEU score"},
 		},
 	},
 	{filename: "Planck_Wien.pdf",
 		pageTerms: map[int][]string{
-			1: []string{"entropy of a system of n identical resonators in a stationary radiation field"},
+			1: {"entropy of a system of n identical resonators in a stationary radiation field"},
 		},
 	},
 	// Case where combineDiacritics was combining ' and " with preceeding letters.
@@ -280,28 +280,28 @@ var fileExtractionTests = []struct {
 	// close to the preceeding letters.
 	{filename: "/rfc6962.txt.pdf",
 		pageTerms: map[int][]string{
-			4: []string{
+			4: {
 				"timestamps for certificates they then don’t log",
 				`The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",`},
 		},
 	},
 	{filename: "Saudi.pdf",
 		pageTerms: map[int][]string{
-			10: []string{"الله"},
+			10: {"الله"},
 		},
 	},
 	// TODO(peterwilliams97): Reinstate these 2 tests when diacritic combination is fixed.
 	// {filename: "Ito_Formula.pdf",
 	// 	pageTerms: map[int][]string{
-	// 		1: []string{
+	// 		1:{
 	// 			"In the Itô stochastic calculus",
 	// 			"In standard, non-stochastic calculus, one computes a derivative"},
-	// 		2: []string{"Financial Economics Itô’s Formula"},
+	// 		2:{"Financial Economics Itô’s Formula"},
 	// 	},
 	// },
 	// {filename: "thanh.pdf",
 	// 	pageTerms: map[int][]string{
-	// 		1: []string{"Hàn Thé̂ Thành"},
+	// 		1:{"Hàn Thé̂ Thành"},
 	// 	},
 	// },
 }
@@ -413,18 +413,14 @@ func (c pageContents) matchTerms() []string {
 
 // textLocTests are the extracted text location tests. All coordinates are multiples of 0.5 points.
 var textLocTests = []textLocTest{
-	textLocTest{
-		filename: "prop-price-list-2017.pdf",
-		numPages: 1,
+	{filename: "prop-price-list-2017.pdf", numPages: 1,
 		contents: map[int]pageContents{
-			1: pageContents{
-				terms: []string{
-					"PRICE LIST",
-					"THING ONE", "$99",
-					"THING TWO", "$314",
-					"THING THREE", "$499",
-					"THING FOUR", "$667",
-				},
+			1: {terms: []string{
+				"PRICE LIST",
+				"THING ONE", "$99",
+				"THING TWO", "$314",
+				"THING THREE", "$499",
+				"THING FOUR", "$667"},
 				marks: []TextMark{
 					l(0, "P", 165, 725.2, 197.2, 773.2),
 					l(1, "R", 197.2, 725.2, 231.9, 773.2),
@@ -434,80 +430,61 @@ var textLocTests = []textLocTest{
 					l(6, "L", 325.3, 725.2, 354.6, 773.2),
 					l(7, "I", 354.6, 725.2, 368.0, 773.2),
 					l(8, "S", 368.0, 725.2, 400.0, 773.2),
-					l(9, "T", 400.0, 725.2, 429.4, 773.2),
-				},
+					l(9, "T", 400.0, 725.2, 429.4, 773.2)},
 				termBBox: map[string]model.PdfRectangle{
-					"THING ONE": r(72.0, 534.5, 197.0, 558.5),
-				},
+					"THING ONE": r(72.0, 534.5, 197.0, 558.5)},
 			},
 		},
 	},
-	textLocTest{
-		filename: "pol_e.pdf",
+	{filename: "pol_e.pdf",
 		numPages: 2,
 		contents: map[int]pageContents{
-			1: pageContents{
-				marks: []TextMark{
-					l(3914, "W", 177.0, 136.5, 188.0, 148.0),
-					l(3915, "T", 187.5, 136.5, 194.5, 148.0),
-					l(3916, "O", 194.5, 136.5, 202.5, 148.0),
-				},
+			1: {marks: []TextMark{
+				l(3914, "W", 177.0, 136.5, 188.0, 148.0),
+				l(3915, "T", 187.5, 136.5, 194.5, 148.0),
+				l(3916, "O", 194.5, 136.5, 202.5, 148.0)},
 				termBBox: map[string]model.PdfRectangle{
 					"global public good": r(244.0, 398.5, 332.5, 410.0),
-					"international":      r(323.5, 611.0, 377.5, 622.0),
-				},
+					"international":      r(323.5, 611.0, 377.5, 622.0)},
 			},
 		},
 	},
-	textLocTest{
-		filename: "thanh.pdf",
-		numPages: 6,
-		contents: map[int]pageContents{
-			1: pageContents{
-				terms: []string{
-					"result is a set of Type 1 fonts that is similar to the Blue Sky fonts",
-					"provide Vietnamese letters with the same quality of outlines and hints",
-					"Vietnamese letters and VNR fonts",
-					"Vietnamese accents can be divided into three the Czech and Polish version of CMR fonts",
-					"kinds of diacritic marks: tone, vowel and consonant. about 2 years until the ﬁrst version",
-				},
+	{filename: "thanh.pdf",
+		numPages: 6, contents: map[int]pageContents{
+			1: {terms: []string{
+				"result is a set of Type 1 fonts that is similar to the Blue Sky fonts",
+				"provide Vietnamese letters with the same quality of outlines and hints",
+				"Vietnamese letters and VNR fonts",
+				"Vietnamese accents can be divided into three the Czech and Polish version of CMR fonts",
+				"kinds of diacritic marks: tone, vowel and consonant. about 2 years until the ﬁrst version"},
 				termBBox: map[string]model.PdfRectangle{
 					"the Blue Sky fonts":                       r(358.0, 532.5, 439.0, 542.5),
-					"Vietnamese letters with the same quality": r(165.5, 520.5, 344.5, 530.5),
-				},
+					"Vietnamese letters with the same quality": r(165.5, 520.5, 344.5, 530.5)},
 			},
-			2: pageContents{
-				terms: []string{
-					"number of glyphs needed for each font is 47",
-					"which 22 are Vietnamese accents and letters.",
-					"I would like to point out that I am not a type",
-					"shows all the glyphs that need to be converted",
-					"designer and therefore the aesthetic aspect of",
-					"to Type 1 format.",
-				},
+			2: {terms: []string{
+				"number of glyphs needed for each font is 47",
+				"which 22 are Vietnamese accents and letters.",
+				"I would like to point out that I am not a type",
+				"shows all the glyphs that need to be converted",
+				"designer and therefore the aesthetic aspect of",
+				"to Type 1 format."},
 				marks: []TextMark{
 					l(290, "T", 334.0, 674.5, 341.2, 684.5),
 					l(291, "a", 340.5, 674.5, 345.5, 684.5),
 					l(292, "k", 345.5, 674.5, 350.5, 684.5),
-					l(293, "e", 350.5, 674.5, 355.0, 684.5),
-				},
+					l(293, "e", 350.5, 674.5, 355.0, 684.5)},
 				termBBox: map[string]model.PdfRectangle{
 					"glyphs needed for each font": r(382.0, 443.0, 501.0, 453.0),
-					"22 are Vietnamese accents":   r(343.5, 431.0, 461.0, 441.0),
-				},
+					"22 are Vietnamese accents":   r(343.5, 431.0, 461.0, 441.0)},
 			},
 		},
 	},
-	textLocTest{
-		filename: "unicodeexample.pdf",
-		numPages: 6,
+	{filename: "unicodeexample.pdf", numPages: 6,
 		contents: map[int]pageContents{
-			2: pageContents{
-				terms: []string{
-					"Österreich", "Johann Strauss",
-					"Azərbaycan", "Vaqif Səmədoğlu",
-					"Азәрбајҹан", "Вагиф Сәмәдоғлу",
-				},
+			2: {terms: []string{
+				"Österreich", "Johann Strauss",
+				"Azərbaycan", "Vaqif Səmədoğlu",
+				"Азәрбајҹан", "Вагиф Сәмәдоғлу"},
 				marks: []TextMark{
 					l(468, "Ö", 272.0, 521.0, 281.0, 533.0),
 					l(470, "s", 281.0, 521.0, 287.0, 533.0),
@@ -518,34 +495,24 @@ var textLocTests = []textLocTest{
 					l(475, "e", 305.0, 521.0, 312.0, 533.0),
 					l(476, "i", 312.0, 521.0, 314.5, 533.0),
 					l(477, "c", 314.5, 521.0, 320.5, 533.0),
-					l(478, "h", 320.5, 521.0, 327.0, 533.0),
-				},
+					l(478, "h", 320.5, 521.0, 327.0, 533.0)},
 				termBBox: map[string]model.PdfRectangle{
 					"Österreich": r(272.0, 521.0, 327.0, 533.0), "Johann Strauß": r(400.5, 521.0, 479.5, 533.0),
 					"Azərbaycan": r(272.0, 490.5, 335.0, 502.5), "Vaqif Səmədoğlu": r(400.5, 490.5, 492.0, 502.5),
-					"Азәрбајҹан": r(272.0, 460.5, 334.5, 472.5), "Вагиф Сәмәдоғлу": r(400.5, 460.5, 501.0, 472.5),
-				},
+					"Азәрбајҹан": r(272.0, 460.5, 334.5, 472.5), "Вагиф Сәмәдоғлу": r(400.5, 460.5, 501.0, 472.5)},
 			},
 		},
 	},
-	textLocTest{
-		filename: "AF+handout+scanned.pdf",
-		numPages: 3,
+	{filename: "AF+handout+scanned.pdf", numPages: 3,
 		contents: map[int]pageContents{
-			1: pageContents{
-				termBBox: map[string]model.PdfRectangle{
-					"reserved": r(505.0, 488.5, 538.5, 497.0),
-				},
+			1: {termBBox: map[string]model.PdfRectangle{
+				"reserved": r(505.0, 488.5, 538.5, 497.0)},
 			},
-			2: pageContents{
-				termBBox: map[string]model.PdfRectangle{
-					"atrium": r(452.78, 407.76, 503.78, 416.26),
-				},
+			2: {termBBox: map[string]model.PdfRectangle{
+				"atrium": r(452.78, 407.76, 503.78, 416.26)},
 			},
-			3: pageContents{
-				termBBox: map[string]model.PdfRectangle{
-					"treatment": r(348.0, 302.0, 388.0, 311.5),
-				},
+			3: {termBBox: map[string]model.PdfRectangle{
+				"treatment": r(348.0, 302.0, 388.0, 311.5)},
 			},
 		},
 	},

@@ -14,6 +14,12 @@ import (
 	"github.com/unidoc/unipdf/v3/model"
 )
 
+// Magic constants
+const (
+	rulingSignificant = 10.0 // lines have to be this at least this long to be potential rulings.
+	axisTol           = 0.01 // // axisTol is the tolerance dx/dy for deciding if a line is axis-alingned.
+)
+
 // rulingList is a list of rulings, possibly in a grid;
 type rulingList []*ruling
 
@@ -58,10 +64,10 @@ func makeFillGrids(fills []*subpath) []rulingList {
 	granularize(fills)
 	var vecs rulingList
 	for _, path := range fills {
-		if !path.isRectPath() {
+		if !path.isQuadrilateral() {
 			continue
 		}
-		if v, ok := path.makeRectRuling(); ok && v.kind != rulingNil {
+		if v, ok := path.makeRectRuling(); ok {
 			vecs = append(vecs, v)
 		}
 	}
@@ -146,8 +152,8 @@ func (path *subpath) makeRectRuling() (*ruling, bool) {
 	}
 
 	ok := (len(horzs) == 2 && len(verts) == 2) ||
-		(len(horzs) == 2 && math.Abs(points[horzs[0]].Y-points[horzs[1]].Y) < 3) ||
-		(len(verts) == 2 && math.Abs(points[verts[0]].X-points[verts[1]].X) < 3)
+		(len(horzs) == 2 && axisAlignedX(points[horzs[0]], points[horzs[1]])) ||
+		(len(verts) == 2 && axisAlignedY(points[verts[0]], points[verts[1]]))
 
 	if !ok {
 		return &ruling{}, false
@@ -210,9 +216,6 @@ var rulingString = map[rulingKind]string{
 	rulingVert: "vertical",
 }
 
-const rulingTol = 1.0
-const rulingSignificant = 10.0
-
 // String returns a description of `v`.
 func (v *ruling) String() string {
 	if v.kind == rulingNil {
@@ -230,30 +233,29 @@ func (v *ruling) equals(v2 *ruling) bool {
 	return v.kind == v2.kind && v.primary == v2.primary && v.lo == v2.lo && v.hi == v2.hi
 }
 
+// lineKind returns the ruling kind of the line from `p1` to `p2`.
 func lineKind(p1, p2 transform.Point) rulingKind {
 	dx := math.Abs(p1.X - p2.X)
 	dy := math.Abs(p1.Y - p2.Y)
-	kind := rulingNil
-	if dx >= rulingSignificant && dy <= rulingTol {
-		kind = rulingHorz
-	} else if dy >= rulingSignificant && dx <= rulingTol {
-		kind = rulingVert
-	}
-	return kind
+	return dxdyKind(dx, dy)
 }
 
+// rectKind returns the ruling kind of rectangle `r`.
 func rectKind(r model.PdfRectangle) rulingKind {
 	dx := r.Width()
 	dy := r.Height()
-	kind := rulingNil
-	if dx >= rulingSignificant && dy <= rulingTol {
-		kind = rulingHorz
-	} else if dy >= rulingSignificant && dx <= rulingTol {
-		kind = rulingVert
-	} else {
-		// common.Log.Error("rectKind: %6.2f %6.2f x %6.2f", r, r.Width(), r.Height())
+	return dxdyKind(dx, dy)
+}
+
+// dxdyKind returns the ruling of a shape that is `dx` wide and `dy` high.
+func dxdyKind(dx, dy float64) rulingKind {
+	if dx >= rulingSignificant && isFlat(dy, dx) {
+		return rulingHorz
 	}
-	return kind
+	if dy >= rulingSignificant && isFlat(dx, dy) {
+		return rulingVert
+	}
+	return rulingNil
 }
 
 func (v lineRuling) xMean() float64 {
@@ -331,15 +333,15 @@ func (vecs rulingList) toGrids() []rulingList {
 	if len(vecs) == 0 {
 		return nil
 	}
-	intersects := vecs.findIntersects()
-	connections := map[int]map[int]bool{}
+	intersects := vecs.intersections()
+	connects := map[int]map[int]bool{}
 	for i := range vecs {
-		connections[i] = vecs.findConnections(intersects, i)
+		connects[i] = vecs.connections(intersects, i)
 	}
 
-	// ordering puts rulings with more connections first then falls back to standard order.
+	// ordering puts rulings with more intersections first then falls back to standard order.
 	ordering := makeOrdering(len(vecs), func(i, j int) bool {
-		ci, cj := len(connections[i]), len(connections[j])
+		ci, cj := len(connects[i]), len(connects[j])
 		if ci != cj {
 			return ci > cj
 		}
@@ -347,29 +349,24 @@ func (vecs rulingList) toGrids() []rulingList {
 	})
 
 	// igrids is the list of  lists of `vecs` indexes of mutually connected rulings.
-	igrids := [][]int{[]int{ordering[0]}}
+	igrids := [][]int{{ordering[0]}}
 outer:
-	for o := 1; o < len(vecs); o++ {
-		iv := ordering[o]
-		for ig, g := range igrids {
-			for _, i := range g {
-				if connections[i][iv] {
-					igrids[ig] = append(g, iv)
+	for _, idx := range ordering[1:] {
+		for ig, grid := range igrids {
+			for _, i := range grid {
+				if connects[i][idx] {
+					igrids[ig] = append(grid, idx)
 					continue outer
 				}
 			}
 		}
-		igrids = append(igrids, []int{iv})
+		igrids = append(igrids, []int{idx})
 	}
 
 	// Return igrids with most rulings first.
 	sort.SliceStable(igrids, func(i, j int) bool { return len(igrids[i]) > len(igrids[j]) })
-	for i, g := range igrids {
-		if len(g) <= 1 {
-			continue
-		}
+	for _, g := range igrids {
 		sort.Slice(g, func(i, j int) bool { return vecs.comp(g[i], g[j]) })
-		igrids[i] = g
 	}
 
 	// Make the grids from the indexes.
@@ -392,9 +389,9 @@ outer:
 	return actualGrids
 }
 
-// findIntersects return the set of sets of ruling intersections in `vecs`.
+// intersections returns the set of sets of ruling intersections in `vecs`.
 // intersects[i] is the set of the indexes in `vecs` of the rulings that intersect with vecs[i]
-func (vecs rulingList) findIntersects() map[int]map[int]bool {
+func (vecs rulingList) intersections() map[int]map[int]bool {
 	var verts, horzs []int
 	for i, v := range vecs {
 		switch v.kind {
@@ -422,14 +419,14 @@ func (vecs rulingList) findIntersects() map[int]map[int]bool {
 	return intersects
 }
 
-// findConnections returns the set of indexes of `vecs` connected to `vecs`[`i`] by the
+// connections returns the set of indexes of `vecs` connected to `vecs`[`i`] by the
 // intersections in `intersects`.
 // TODO(petewilliams97): The vertical and horizontal rulings are the nodes of a bipartite graph
 // their intersections are the edges in this graph, so there is probably some efficient way of doing
 // this with.
 // For now. we do a simple breadth first search.
-func (vecs rulingList) findConnections(intersects map[int]map[int]bool, i int) map[int]bool {
-	connections := map[int]bool{}
+func (vecs rulingList) connections(intersects map[int]map[int]bool, i int) map[int]bool {
+	connects := map[int]bool{}
 	visited := map[int]bool{}
 	var bfs func(int)
 	bfs = func(i0 int) {
@@ -437,11 +434,11 @@ func (vecs rulingList) findConnections(intersects map[int]map[int]bool, i int) m
 			visited[i0] = true
 			for i := range vecs {
 				if intersects[i][i0] {
-					connections[i] = true
+					connects[i] = true
 				}
 			}
 			for i := range vecs {
-				if connections[i] {
+				if connects[i] {
 					bfs(i)
 				}
 			}
@@ -449,7 +446,7 @@ func (vecs rulingList) findConnections(intersects map[int]map[int]bool, i int) m
 	}
 
 	bfs(i)
-	return connections
+	return connects
 }
 
 // isActualGrid is a decision function that tells whether a list of rulings is a grid.
@@ -466,8 +463,8 @@ func (vecs rulingList) isActualGrid() bool {
 	return numVert >= 2 && numHorz >= 2
 }
 
-// isRectPath returns true if `path` is an axis-aligned rectangle.
-func (path *subpath) isRectPath() bool {
+// isQuadrilateral isQuadrilateral true if `path` is a closed quadrilateral.
+func (path *subpath) isQuadrilateral() bool {
 	if len(path.points) < 4 || len(path.points) > 5 {
 		return false
 	}
@@ -549,4 +546,23 @@ func (vecs rulingList) sortStrict() {
 		}
 		return vi.hi < vj.hi
 	})
+}
+
+// axisAlignedX returns true if the line from `p1` is alinged with the X axis.
+func axisAlignedX(p1, p2 transform.Point) bool {
+	dx := math.Abs(p1.X - p2.X)
+	dy := math.Abs(p1.Y - p2.Y)
+	return isFlat(dy, dx)
+}
+
+// axisAlignedY returns true if the line from `p1` is alinged with the Y axis.
+func axisAlignedY(p1, p2 transform.Point) bool {
+	dx := math.Abs(p1.X - p2.X)
+	dy := math.Abs(p1.Y - p2.Y)
+	return isFlat(dx, dy)
+}
+
+// isFlat returns true if a line that `rises` by `dy` or less over a distance of `dx` is flat.
+func isFlat(dy, dx float64) bool {
+	return dy/math.Max(1.0, dx) < axisTol
 }

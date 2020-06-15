@@ -116,7 +116,7 @@ func (s *textStrata) depthIndexes() []int {
 // If `detectOnly` is true, don't appy moveWord.
 // If `freezeDepth` is true, don't update minDepth and maxDepth in scan as words are added.
 func (s *textStrata) scanBand(title string, para *textStrata,
-	readingOverlap func(para *textStrata, word *textWord) bool,
+	readingOverlap func(*textStrata, *textWord) bool,
 	minDepth, maxDepth, fontTol float64,
 	detectOnly, freezeDepth bool) int {
 	fontsize := para.fontsize
@@ -136,10 +136,8 @@ func (s *textStrata) scanBand(title string, para *textStrata,
 			fontRatio1 := math.Abs(word.fontsize-fontsize) / fontsize
 			fontRatio2 := word.fontsize / fontsize
 			fontRatio := math.Min(fontRatio1, fontRatio2)
-			if fontTol > 0 {
-				if fontRatio > fontTol {
-					continue
-				}
+			if fontTol > 0 && fontRatio > fontTol {
+				continue
 			}
 
 			if !detectOnly {
@@ -185,8 +183,8 @@ func (s *textStrata) scanBand(title string, para *textStrata,
 	return n
 }
 
-func (para *textStrata) text() string {
-	words := para.allWords()
+func (s *textStrata) text() string {
+	words := s.allWords()
 	texts := make([]string, len(words))
 	for i, w := range words {
 		texts[i] = w.text()
@@ -340,7 +338,8 @@ func (s *textStrata) removeWord(depthIdx int, word *textWord) {
 	}
 }
 
-// mergeStratas merges paras less than a character width to the left of a stata;
+// mergeStratas goes through all strata p in `paras` are merges all strara are less than a character
+// width to the left of p into p.
 func mergeStratas(paras []*textStrata) []*textStrata {
 	if len(paras) <= 1 {
 		return paras

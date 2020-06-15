@@ -16,30 +16,48 @@ import (
 )
 
 // makeTextPage builds a paraList from `marks`, the textMarks on a page.
+// The paraList contains the page arranged as
+//  - a list of texPara in reading order
+//  - each textPara contains list of textLine (text lines or parts of text lines) in reading order
+//  - each textLine contains a list of textWord (words or parts of words) in reading order
+// The paraList is thus an ordering of words on a page.
+//   - Users of the paraList are expected to work with words. This should be adequate for most uses
+//     as words are the basic unit of meaning in written language.
+//   - However we provide links back from the extracted text to the textMarks as follows.
+//        * paraList.writeText() returns the extracted text for a page
+//        * paras.toTextMarks() returns a TextMarkArray containing the marks
+//        * TextMarkArray.RangeOffset(lo, hi) return the marks corresponding offsets [lo:hi] in the
+//          extracted text.
+// NOTE: The "parts of words" occur because of hyphenation. We do some weak coordinate based
+//        dehypenation. Caller who need strong dehypenation should use NLP librarie.
+//       The "parts of lines" are an implementation detail. Line fragments are combined in
+//        paraList.writeText()
 func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraList {
 	common.Log.Trace("makeTextPage: %d elements pageSize=%.2f", len(marks), pageSize)
 
-	// Break the marks into words
+	// Group the marks into words.
 	words := makeTextWords(marks, pageSize)
 
-	// Divide the words into depth bins with each the contents of each bin sorted by reading direction
+	// Divide the words into depth bins with the contents of each bin sorted by reading direction
 	page := makeTextStrata(words, pageSize.Ury)
-	// Divide the page into rectangular regions for each paragraph and creata a textStrata for each one.
+
+	// Divide the page into rectangular regions for each paragraph and create a textStrata for each.
 	paraStratas := dividePage(page, pageSize.Ury)
-	paraStratas = mergeStratas(paraStratas)
-	// Arrange the contents of each para into lines
+
+	// Arrange the contents of each para into lines.
 	paras := make(paraList, len(paraStratas))
 	for i, para := range paraStratas {
 		paras[i] = para.composePara()
 	}
-
 	paras.log("unsorted")
-	// paras.computeEBBoxes()
 
 	if useTables {
 		paras = paras.extractTables()
 	}
-	// paras.log("tables extracted")
+
+	// Compute the EBBoxs, the regions around the paras that don't intersect paras in other columns.
+	// This is needed for sortReadingOrder to work with skinny paras in a column of fat paras. The
+	// sorting assumes the skinny para bounding box is as wide as the fat para bounding boxes.
 	paras.computeEBBoxes()
 	paras.log("EBBoxes 2")
 
@@ -50,16 +68,15 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	return paras
 }
 
-// dividePage divides page builds a list of paragraph textStrata from `page`, the page textStrata.
+// dividePage builds a list of paragraph textStrata from `page`, the page textStrata.
 func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 	var paraStratas []*textStrata
 
 	// We move words from `page` to paras until there no words left in page.
 	// We do this by iterating through `page` in depth bin order and, for each surving bin (see
-	// below),  creating a paragraph with seed word, `words[0]` in the code below.
+	// below), creating a paragraph with seed word (`words[0]` in the code below).
 	// We then move words from around the `para` region from `page` to `para` .
-	// This may empty some page bins before we iterate to them
-	// Some bins are emptied before they iterated to (seee "surving bin" above).
+	// Some bins are emptied before they iterated to (see "surving bin" above).
 	// If a `page` survives until it is iterated to then at least one `para` will be built around it.
 
 	if verbosePage {
@@ -89,7 +106,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 			maxIntraDepthGap := maxIntraDepthGapR * para.fontsize
 
 			// Add words to `para` until we pass through the following loop without a new word
-			// being added to a `para`.
+			// being added.
 			for running := true; running; running = changed {
 				changed = false
 
@@ -105,7 +122,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 					changed = true
 				}
 				// Add words that are within maxIntraReadingGap of `para` in the reading direction.
-				// i.e. Stretch para in the reading direction, horizontall for English text.
+				// i.e. Stretch para in the reading direction, horizontally for English text.
 				if page.scanBand("horizontal", para, partial(readingOverlapPlusGap, maxIntraReadingGap),
 					para.minDepth(), para.maxDepth(),
 					maxIntraReadingFontTol, false, false) > 0 {
@@ -133,7 +150,6 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 				// If there are words to the left of `para`, add them.
 				// We need to limit the number of words.
 				otherTol := minInterReadingFontTol
-				// otherTol = 0.7
 				n := page.scanBand("", para, partial(readingOverlapLeft, minInterReadingGap),
 					para.minDepth(), para.maxDepth(),
 					otherTol, true, false)
@@ -157,6 +173,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 		}
 	}
 
+	paraStratas = mergeStratas(paraStratas)
 	return paraStratas
 }
 
@@ -178,7 +195,7 @@ func (paras paraList) writeText(w io.Writer) {
 }
 
 // toTextMarks creates the TextMarkArray corresponding to the extracted text created by
-// paras `paras`.writeText().
+// `paras`.writeText().
 func (paras paraList) toTextMarks() []TextMark {
 	offset := 0
 	var marks []TextMark
@@ -312,6 +329,7 @@ func overlappedXPara(r0, r1 *textPara) bool {
 }
 
 // computeEBBoxes computes the eBBox fields in the elements of `paras`.
+// EEBox is the region around a para that doesn't overlap any textParas from other columns.
 func (paras paraList) computeEBBoxes() {
 	if verbose {
 		common.Log.Info("computeEBBoxes:")
@@ -324,20 +342,19 @@ func (paras paraList) computeEBBoxes() {
 	for i, aa := range paras {
 		a := aa.eBBox
 		// [llx, urx] is the reading direction interval for which no paras overlap `a`.
-		llx := -1.0e9
-		urx := +1.0e9
+		llx, urx := -1.0e9, +1.0e9
 		for j, bb := range paras {
 			b := bb.eBBox
 			if i == j || !(a.Lly <= b.Ury && b.Lly <= a.Ury) {
 				continue
 			}
-			// y overlap
+			// There is a y overlap if we are here.
 
-			// `b` to left of `a`. no x overlap.
+			// `b` to left of `a`. no x overlap. Extend llx to the right edge of `b`.
 			if b.Urx < a.Llx {
 				llx = math.Max(llx, b.Urx)
 			}
-			// `b` to right of `a`. no x overlap.
+			// `b` to right of `a`. no x overlap. Extend urx to the left edge of `b`.
 			if a.Urx < b.Llx {
 				urx = math.Min(urx, b.Llx)
 			}
@@ -440,7 +457,7 @@ func reversed(order []int) []int {
 	return rev
 }
 
-// reorder reorders `para` to the order in `order`.
+// reorder reorders `paras` to the order in `order`.
 func (paras paraList) reorder(order []int) {
 	sorted := make(paraList, len(paras))
 	for i, k := range order {

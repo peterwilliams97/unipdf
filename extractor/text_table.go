@@ -124,8 +124,6 @@ func (cells cellList) bbox() model.PdfRectangle {
 	return rect
 }
 
-const DBL_MIN, DBL_MAX = -1.0e10, +1.0e10
-
 // extractTables converts the`paras` that are table cells to tables containing those cells.
 func (paras paraList) extractTables() paraList {
 	common.Log.Debug("extractTables=%d ===========x=============", len(paras))
@@ -237,81 +235,7 @@ func below(para2, para1 *textPara) bool {
 	return para2.Ury < para1.Lly
 }
 
-// func (paras cellList) cellDepths() []float64 {
-// 	topF := func(p *textPara) float64 { return p.Ury }
-// 	botF := func(p *textPara) float64 { return p.Lly }
-// 	top := paras.calcCellDepths(topF)
-// 	bottom := paras.calcCellDepths(botF)
-// 	if len(bottom) < len(top) {
-// 		return bottom
-// 	}
-// 	return top
-// }
-
-// func (paras cellList) calcCellDepths(getY func(*textPara) float64) []float64 {
-// 	depths := []float64{getY(paras[0])}
-// 	delta := paras.fontsize() * maxIntraDepthGapR
-// 	for _, para := range paras {
-// 		newDepth := true
-// 		y := getY(para)
-// 		for _, d := range depths {
-// 			if math.Abs(d-getY(para)) < delta {
-// 				newDepth = false
-// 				break
-// 			}
-// 		}
-// 		if newDepth {
-// 			depths = append(depths, y)
-// 		}
-// 	}
-// 	return depths
-// }
-
-func (t *textTable) __corners() paraList {
-	w, h := t.w, t.h
-	if w == 0 || h == 0 {
-		panic(t)
-	}
-	cnrs := paraList{
-		t.get(0, 0),
-		t.get(w-1, 0),
-		t.get(0, h-1),
-		t.get(w-1, h-1),
-	}
-	for i0, c0 := range cnrs {
-		for _, c1 := range cnrs[:i0] {
-			if c0.serial == c1.serial {
-				panic("dup")
-			}
-		}
-	}
-	return cnrs
-}
-
-// func newTable(cells cellList, w, h int) textTable {
-// 	if w == 0 || h == 0 {
-// 		panic("emprty")
-// 	}
-// 	for i0, c0 := range cells {
-// 		for _, c1 := range cells[:i0] {
-// 			if c0.serial == c1.serial {
-// 				panic("dup")
-// 			}
-// 		}
-// 	}
-// 	rect := cells[0].PdfRectangle
-// 	for _, c := range cells[1:] {
-// 		rect = rectUnion(rect, c.PdfRectangle)
-// 	}
-// 	return textTable{
-// 		PdfRectangle: rect,
-// 		w:            w,
-// 		h:            h,
-// 		cells:        cells,
-// 	}
-// }
-
-func (table *textTable) newTablePara() *textPara {
+func (t *textTable) newTablePara() *textPara {
 	// var cells cellList
 	// for _, cell := range table.cells {
 	// 	if cell != nil {
@@ -320,14 +244,14 @@ func (table *textTable) newTablePara() *textPara {
 	// }
 	// sort.Slice(cells, func(i, j int) bool { return diffDepthReading(cells[i], cells[j]) < 0 })
 	// table.cells = cells
-	bbox := table.bbox()
+	bbox := t.bbox()
 	para := textPara{
 		serial:       serial.para,
 		PdfRectangle: bbox,
 		eBBox:        bbox,
-		table:        table,
+		table:        t,
 	}
-	table.log(fmt.Sprintf("newTablePara: serial=%d", para.serial))
+	t.log(fmt.Sprintf("newTablePara: serial=%d", para.serial))
 
 	serial.para++
 	return &para
@@ -393,9 +317,9 @@ func parasAligned(get getter, delta float64, para1, para2 *textPara) bool {
 }
 
 // fontsize for a paraList is the minimum font size of the paras.
-func (paras cellList) fontsize() float64 {
+func (cells cellList) fontsize() float64 {
 	size := -1.0
-	for _, p := range paras {
+	for _, p := range cells {
 		if p != nil {
 			if size < 0 {
 				size = p.fontsize()

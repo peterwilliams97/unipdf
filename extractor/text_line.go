@@ -85,6 +85,11 @@ func (l *textLine) toTextMarks(offset *int) []TextMark {
 // `l.PdfRectangle` is increased to bound the new word
 // `l.fontsize` is the largest of the fontsizes of the words in line
 func (l *textLine) moveWord(s *textStrata, depthIdx int, word *textWord) {
+	l.appendWord(word)
+	s.removeWord(depthIdx, word)
+}
+
+func (l *textLine) appendWord(word *textWord) {
 	l.words = append(l.words, word)
 	l.PdfRectangle = rectUnion(l.PdfRectangle, word.PdfRectangle)
 	if word.fontsize > l.fontsize {
@@ -93,7 +98,6 @@ func (l *textLine) moveWord(s *textStrata, depthIdx int, word *textWord) {
 	if word.depth > l.depth {
 		l.depth = word.depth
 	}
-	s.removeWord(depthIdx, word)
 }
 
 // mergeWordFragments merges the word fragments in the words in `l`.

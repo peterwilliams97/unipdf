@@ -89,7 +89,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 			maxIntraDepthGap := maxIntraDepthGapR * para.fontsize
 
 			// Add words to `para` until we pass through the following loop without a new word
-			// being added to a `para`.
+			// being added.
 			for running := true; running; running = changed {
 				changed = false
 

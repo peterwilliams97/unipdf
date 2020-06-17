@@ -146,6 +146,7 @@ func testRectIndex() {
 	}
 	// panic("done")
 }
+
 func init() {
 	testRectIndex()
 }
@@ -156,6 +157,14 @@ type rectIndex struct {
 	pageHeight float64
 	fontsize   float64
 	orders     map[attrKind][]int
+}
+
+func makeBoundedIndex(boundedList []bounded) *rectIndex {
+	rects := make([]model.PdfRectangle, len(boundedList))
+	for i, b := range boundedList {
+		rects[i] = b.bbox()
+	}
+	return makeRectIndex(rects)
 }
 
 func makeRectIndex(rects []model.PdfRectangle) *rectIndex {
@@ -202,6 +211,39 @@ func (idx *rectIndex) overlappingRect(r model.PdfRectangle) set {
 	return xorder.and(yorder)
 }
 
+type rectQuery struct {
+	attr attrKind
+	comp compKind
+	val  float64
+}
+
+type compKind int
+
+const (
+	compLe compKind = iota
+	compGe
+)
+
+func (idx *rectIndex) filter(conditions []rectQuery) set {
+	s := idx.filterOne(conditions[0])
+	for _, q := range conditions[1:] {
+		s = s.and(idx.filterOne(q))
+	}
+	return s
+}
+
+func (idx *rectIndex) filterOne(q rectQuery) set {
+	switch q.comp {
+	case compLe:
+		return idx.le(q.attr, q.val)
+	case compGe:
+		return idx.ge(q.attr, q.val)
+	default:
+		panic(fmt.Errorf("comp not implemented q=%+v", q))
+	}
+	return nil
+}
+
 // overlappingAttr returns the indexes in idx.rects of the rectangles that overlap [`z0`..`z1`) for
 // attribute `k`.
 func (idx *rectIndex) overlappingAttr(k attrKind, z0, z1 float64) set {
@@ -237,8 +279,22 @@ func (idx *rectIndex) le(k attrKind, z float64) set {
 		panic(n)
 		return nil
 	}
-
 	return makeSet(order[:i])
+}
+
+func (idx *rectIndex) ile(k attrKind, z float64) int {
+	fmt.Printf(" -- ile %s %.1f\n", k, z)
+	val := idx.kVal(k)
+	n := len(idx.rects)
+	if z < val(0) {
+		return 0
+	}
+	if z >= val(n-1) {
+		return n
+	}
+	// i is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
+	i := sort.Search(n, func(i int) bool { return val(i) > z })
+	return i
 }
 
 func (idx *rectIndex) ge(k attrKind, z float64) set {
@@ -302,6 +358,8 @@ const (
 	kUrx
 	kLly
 	kUry
+	kDepth
+	kReading
 )
 
 type set map[int]bool
@@ -309,6 +367,13 @@ type set map[int]bool
 func (s set) has(e int) bool {
 	return s[e]
 }
+func (s set) add(e int) {
+	s[e] = true
+}
+func (s set) del(e int) {
+	delete(s, e)
+}
+
 func (s set) and(other set) set {
 	fmt.Printf("and ------------\n\t  s=%+v\n\toth=%+v\n", s, other)
 	intersection := set{}

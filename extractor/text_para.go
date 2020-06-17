@@ -33,10 +33,10 @@ type textPara struct {
 }
 
 // newTextPara returns a textPara with the same bouding rectangle as `strata`.
-func newTextPara(strata *textStrata) *textPara {
+func newTextPara(bbox model.PdfRectangle) *textPara {
 	para := textPara{
 		serial:       serial.para,
-		PdfRectangle: strata.PdfRectangle,
+		PdfRectangle: bbox,
 	}
 	serial.para++
 	return &para
@@ -208,7 +208,7 @@ func (p *textPara) fontsize() float64 {
 func (strata *textStrata) composePara() *textPara {
 	// Sort the words in `para`'s bins in the reading direction.
 	strata.sort()
-	para := newTextPara(strata)
+	para := newTextPara(strata.PdfRectangle)
 
 	// build the lines
 	for _, depthIdx := range strata.depthIndexes() {
@@ -229,8 +229,7 @@ func (strata *textStrata) composePara() *textPara {
 			maxDepth := word0.depth + lineDepthR*fontSize
 			maxIntraWordGap := maxIntraWordGapR * fontSize
 
-		remainingWords:
-			// find the rest of the words in this line
+		remainingWords: // Find the rest of the words in this line.
 			for {
 				// Search for `leftWord`, the left-most word w: minDepth <= w.depth <= maxDepth.
 				var leftWord *textWord

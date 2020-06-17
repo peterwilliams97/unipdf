@@ -93,7 +93,7 @@ func depthIndex(depth float64) int {
 	return depthIdx
 }
 
-// depthIndexes returns the sorted keys of s.bins.
+// depthIndexes returns the sorted keys of s.bins. \->
 func (s *textStrata) depthIndexes() []int {
 	if len(s.bins) == 0 {
 		return nil
@@ -228,6 +228,22 @@ func (s *textStrata) depthRange(minDepthIdx, maxDepthIdx int) []int {
 	return rangeIndexes
 }
 
+// getDepthIdx returns the index into `s.bins` for depth axis value `depth`.
+func (s *textStrata) getDepthIdx(depth float64) int {
+	if len(s.bins) == 0 {
+		panic("NOT ALLOWED")
+	}
+	indexes := s.depthIndexes()
+	depthIdx := depthIndex(depth)
+	if depthIdx < indexes[0] {
+		return indexes[0]
+	}
+	if depthIdx > indexes[len(indexes)-1] {
+		return indexes[len(indexes)-1]
+	}
+	return depthIdx
+}
+
 // firstReadingIndex returns the index of the depth bin that starts with that word with the smallest
 // reading direction value in the depth region `minDepthIndex` < depth <= minDepthIndex+ 4*fontsize
 // This avoids choosing a bin that starts with a superscript word.
@@ -244,22 +260,6 @@ func (s *textStrata) firstReadingIndex(minDepthIdx int) int {
 		}
 	}
 	return firstReadingIdx
-}
-
-// getDepthIdx returns the index into `s.bins` for depth axis value `depth`.
-func (s *textStrata) getDepthIdx(depth float64) int {
-	if len(s.bins) == 0 {
-		panic("NOT ALLOWED")
-	}
-	indexes := s.depthIndexes()
-	depthIdx := depthIndex(depth)
-	if depthIdx < indexes[0] {
-		return indexes[0]
-	}
-	if depthIdx > indexes[len(indexes)-1] {
-		return indexes[len(indexes)-1]
-	}
-	return depthIdx
 }
 
 // empty returns true if the depth bin with index `depthIdx` is empty.

@@ -53,15 +53,15 @@ func (s *text2Strata) readingSpan(lo, hi float64) set {
 }
 
 func (s *text2Strata) filter(conditions []rectQuery) set {
-	return s.idx.filter(conditions)
+	return s.idx.filter(s.elements, conditions)
 }
 
 // makeText2Strata builds a text2Strata from `words` by putting the words into the appropriate
 // depth bins.
 func makeUniverse(words []*textWord, pageHeight float64) *universe {
-	rects := make([]model.PdfRectangle, len(words))
+	rects := make([]textRect, len(words))
 	for i, w := range words {
-		rects[i] = w.PdfRectangle
+		rects[i] = textRect{PdfRectangle: w.PdfRectangle, depth: w.depth, fontsize: w.fontsize}
 	}
 	return &universe{
 		words:      words,
@@ -101,7 +101,17 @@ func (u *universe) makeText2Strata() *text2Strata {
 // If `freezeDepth` is true, don't update minDepth and maxDepth in scan as words are added.
 func (s *text2Strata) scanBand(fontTol, fontsize float64, readingFilter []rectQuery) set {
 	elements := s.filter(readingFilter)
+	for e := range elements {
+		if !s.elements.has(e) {
+			panic(fmt.Errorf("%d not in %s", e, s.elements))
+		}
+	}
 	elements = s.filterFont(elements, fontTol, fontsize)
+	for e := range elements {
+		if !s.elements.has(e) {
+			panic(fmt.Errorf("%d not in %s", e, s.elements))
+		}
+	}
 	return elements
 }
 
@@ -152,10 +162,16 @@ func (s *text2Strata) firstReadingWord() int {
 	if s.idx == nil {
 		panic("s.idx")
 	}
-	minDepthElt := s.idx.orders[kDepth][0]
-	minDepth := s.words[minDepthElt].depth
-	fontsize := s.words[minDepthElt].fontsize
-	elements := s.idx.le(kDepth, minDepth+4*fontsize)
+
+	word := s.minDepthWord()
+	minDepth := word.depth
+	fontsize := word.fontsize
+	if fontsize < 0.001 {
+		panic(fontsize)
+	}
+	lower := s.idx.le(kDepth, minDepth+4*fontsize)
+	upper := s.idx.ge(kDepth, minDepth)
+	elements := s.elements.and(upper).and(lower)
 	for _, e := range s.idx.orders[kLlx] {
 		if elements.has(e) {
 			return e
@@ -168,7 +184,7 @@ func (s *text2Strata) firstReadingWord() int {
 func (s *text2Strata) firstReadingWordRange(minDepth, maxDepth float64) (int, bool) {
 	lower := s.idx.ge(kDepth, minDepth)
 	upper := s.idx.le(kDepth, maxDepth)
-	elements := lower.and(upper)
+	elements := s.elements.and(lower).and(upper)
 	for _, e := range s.idx.orders[kLlx] {
 		if elements.has(e) {
 			return e, true
@@ -182,21 +198,35 @@ func (s *text2Strata) empty() bool {
 	return len(s.elements) == 0
 }
 
+func (s *text2Strata) pullSet(page *text2Strata, elements set) {
+	if len(elements) == 0 {
+		panic(s)
+	}
+	n0 := len(page.elements)
+	for e := range elements {
+		s.pullWord(page, e)
+	}
+	if len(page.elements) == n0 {
+		panic(elements)
+	}
+}
+
 // move2Word moves `word` from 'page'[`depthIdx`] to 'para'[`depthIdx`].
 // !@#$ Use same idx
-func (s *text2Strata) pullWord(page *text2Strata, element int) {
-	word := s.words[element]
+func (s *text2Strata) pullWord(page *text2Strata, e int) {
+	if !page.elements.has(e) {
+		panic(fmt.Errorf("%d not in %s", e, page.elements))
+	}
+	n0 := len(page.elements)
+	word := s.words[e]
 	s.PdfRectangle = rectUnion(s.PdfRectangle, word.PdfRectangle)
 	if word.fontsize > s.fontsize {
 		s.fontsize = word.fontsize
 	}
-	s.elements.add(element)
-	page.elements.del(element)
-}
-
-func (s *text2Strata) pullSet(page *text2Strata, elements set) {
-	for e := range elements {
-		s.pullWord(page, e)
+	s.elements.add(e)
+	page.elements.del(e)
+	if len(page.elements) == n0 {
+		panic(fmt.Errorf("%d not in %s", e, page.elements))
 	}
 }
 
@@ -307,11 +337,34 @@ func (s *text2Strata) String() string {
 
 // minDepth returns the minimum depth that words in `s` touch.
 func (s *text2Strata) minDepth() float64 {
+	word := s.minDepthWord()
+	if word == nil {
+		return -1
+	}
+	return word.depth
 	return s.pageHeight - (s.Ury - s.fontsize)
+}
+
+func (s *text2Strata) minDepthWord() *textWord {
+	order := s.idx.orders[kDepth]
+	for i := 0; i < len(order); i++ {
+		if s.elements.has(order[i]) {
+			return s.words[order[i]]
+		}
+	}
+	return nil
+
 }
 
 // maxDepth returns the maximum depth that words in `s` touch.
 func (s *text2Strata) maxDepth() float64 {
+	order := s.idx.orders[kDepth]
+	for i := len(order) - 1; i >= 0; i-- {
+		if s.elements.has(order[i]) {
+			return s.words[order[i]].depth
+		}
+	}
+	return -1
 	return s.pageHeight - s.Lly
 }
 
@@ -377,9 +430,13 @@ func (s *text2Strata) depthIndexes() []int {
 func (strata *text2Strata) composePara() *textPara {
 	para := newTextPara(strata.PdfRectangle)
 
+	common.Log.Info("composePara: para=%s", para)
+	if para.PdfRectangle.Width() == 0 {
+		panic(strata)
+	}
+
 	// build the lines
 	for !strata.empty() {
-
 		// seed is the leftmost word from bins near `depthIdx`.
 		seed := strata.firstReadingWord()
 		// create a new line
@@ -393,16 +450,23 @@ func (strata *text2Strata) composePara() *textPara {
 		maxDepth := depth + lineDepthR*fontsize
 		maxIntraWordGap := maxIntraWordGapR * fontsize
 
+		common.Log.Info(" strata=%d line=%s", len(strata.elements), line)
+
 		// Find the rest of the words in the line.
-		for {
+		for !strata.empty() {
+			n0 := len(strata.elements)
 			// `leftWord` is the left-most word w: minDepth <= w.depth <= maxDepth.
 			e, found := strata.firstReadingWordRange(minDepth, maxDepth)
 			if !found {
 				break
 			}
+			if !strata.elements.has(e) {
+				panic(strata)
+			}
 			leftWord := strata.words[e]
 			lastWord := line.words[len(line.words)-1]
 			gap := gapReading(leftWord, lastWord)
+			common.Log.Info(" strata=%d leftWord=%s", len(strata.elements), leftWord)
 			if gap < -maxIntraLineOverlapR*fontsize {
 				// New line
 				break
@@ -414,6 +478,9 @@ func (strata *text2Strata) composePara() *textPara {
 			// remove `leftWord` from `strata` append it to `line`.
 			line.appendWord(leftWord)
 			strata.elements.del(e)
+			if n0 == len(strata.elements) {
+				panic("no change")
+			}
 		}
 
 		line.mergeWordFragments()

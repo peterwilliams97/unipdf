@@ -10,20 +10,32 @@ import (
 	"math"
 	"sort"
 
+	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
 )
 
-//  {Llx: 7, Urx: 15, Lly: 4, Ury: 7} 0  2 4
-var myRects = []model.PdfRectangle{
-	{Llx: 0, Urx: 10, Lly: 1, Ury: 6},   // 0 x x  X
-	{Llx: 4, Urx: 16, Lly: 11, Ury: 16}, // 1 x
-	{Llx: 5, Urx: 15, Lly: 2, Ury: 7},   // 2 x x  X
-	{Llx: 6, Urx: 14, Lly: 10, Ury: 15}, // 3 x
-	{Llx: 9, Urx: 20, Lly: 0, Ury: 7},   // 4 x x  X
+type textRect struct {
+	model.PdfRectangle
+	depth    float64
+	fontsize float64
 }
 
-func mySubset(vals ...int) []model.PdfRectangle {
-	rects := make([]model.PdfRectangle, len(vals))
+func tr(llx, urx, lly, ury float64) textRect {
+	r := model.PdfRectangle{Llx: llx, Urx: urx, Lly: lly, Ury: ury}
+	return textRect{PdfRectangle: r}
+}
+
+//  {Llx: 7, Urx: 15, Lly: 4, Ury: 7} 0  2 4
+var myRects = []textRect{
+	tr(0, 10, 1, 6),   // 0 x x  X
+	tr(4, 16, 11, 16), // 1 x
+	tr(5, 15, 2, 7),   // 2 x x  X
+	tr(6, 14, 10, 15), // 3 x
+	tr(9, 20, 0, 7),   // 4 x x  X
+}
+
+func mySubset(vals ...int) []textRect {
+	rects := make([]textRect, len(vals))
 	for i, v := range vals {
 		rects[i] = myRects[v]
 	}
@@ -72,7 +84,7 @@ func testRectIndex() {
 		}
 	}
 	if true {
-		r := model.PdfRectangle{Llx: 7, Urx: 15, Lly: 4, Ury: 7}
+		r := tr(7, 15, 4, 7)
 		_olap := idx.overlappingRect(r)
 		olap := idx.asRects(_olap)
 		olapExp := mySubset(0, 2, 4)
@@ -85,12 +97,12 @@ func testRectIndex() {
 	// panic("done")
 }
 
-func init() {
-	testRectIndex()
-}
+// func init() {
+// 	testRectIndex()
+// }
 
 type rectIndex struct {
-	rects      []model.PdfRectangle
+	rects      []textRect
 	pageSize   model.PdfRectangle // Bounding box (union of words' in bins bounding boxes).
 	pageHeight float64
 	fontsize   float64
@@ -98,22 +110,22 @@ type rectIndex struct {
 }
 
 func makeBoundedIndex(boundedList []bounded) *rectIndex {
-	rects := make([]model.PdfRectangle, len(boundedList))
+	rects := make([]textRect, len(boundedList))
 	for i, b := range boundedList {
-		rects[i] = b.bbox()
+		rects[i] = textRect{PdfRectangle: b.bbox()}
 	}
 	return makeRectIndex(rects)
 }
 
-func makeRectIndex(rects []model.PdfRectangle) *rectIndex {
+func makeRectIndex(rects []textRect) *rectIndex {
 	idx := &rectIndex{rects: rects, orders: map[attrKind][]int{}}
 	idx.build()
 
 	kinds := []attrKind{kLlx, kUrx, kLly, kUry, kDepth}
-	fmt.Printf("makeRectIndex: %s\n", kinds)
-	for _, k := range kinds {
-		fmt.Printf("%s %v\n", k, idx.orders[k])
-	}
+	common.Log.Info("makeRectIndex: %s\n", kinds)
+	// for _, k := range kinds {
+	// 	fmt.Printf("%s %v\n", k, idx.orders[k])
+	// }
 	return idx
 }
 
@@ -123,15 +135,15 @@ func (idx *rectIndex) build() {
 	}
 }
 
-func (idx *rectIndex) asRects(s set) []model.PdfRectangle {
-	var rects []model.PdfRectangle
+func (idx *rectIndex) asRects(s set) []textRect {
+	var rects []textRect
 	for e := range s {
 		rects = append(rects, idx.rects[e])
 	}
 	return sortedRects(rects)
 }
 
-func (idx *rectIndex) overlappingRect(r model.PdfRectangle) set {
+func (idx *rectIndex) overlappingRect(r textRect) set {
 	fmt.Printf(" overlappingRect: r=%.1f ====================\n", r)
 	o1 := idx.le(kLlx, r.Urx)
 	fmt.Printf(" le(kLlx, r.Urx)=%d %.1f\n", len(o1), idx.asRects(o1))
@@ -162,12 +174,11 @@ const (
 	compGe
 )
 
-func (idx *rectIndex) filter(conditions []rectQuery) set {
-	s := idx.filterOne(conditions[0])
-	for _, q := range conditions[1:] {
-		s = s.and(idx.filterOne(q))
+func (idx *rectIndex) filter(elements set, conditions []rectQuery) set {
+	for _, q := range conditions {
+		elements = elements.and(idx.filterOne(q))
 	}
-	return s
+	return elements
 }
 
 func (idx *rectIndex) filterOne(q rectQuery) set {
@@ -198,12 +209,12 @@ func (idx *rectIndex) overlappingAttr(k attrKind, z0, z1 float64) set {
 }
 
 func (idx *rectIndex) le(k attrKind, z float64) set {
-	fmt.Printf(" -- le %s %.1f\n", k, z)
+	// fmt.Printf(" -- le %s %.1f\n", k, z)
 	order := idx.orders[k]
 	val := idx.kVal(k)
 	n := len(idx.rects)
 	if z < val(0) {
-		fmt.Printf("##le %s %.1f => nil (%.1f)\n", k, z, val(0))
+		// fmt.Printf("##le %s %.1f => nil (%.1f)\n", k, z, val(0))
 		return nil
 	}
 	if z >= val(n-1) {
@@ -212,7 +223,7 @@ func (idx *rectIndex) le(k attrKind, z float64) set {
 
 	// i is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
 	i := sort.Search(n, func(i int) bool { return val(i) > z })
-	fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
+	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
 	if !(0 <= i) {
 		panic(n)
 		return nil
@@ -236,7 +247,7 @@ func (idx *rectIndex) ile(k attrKind, z float64) int {
 }
 
 func (idx *rectIndex) ge(k attrKind, z float64) set {
-	fmt.Printf(" -- ge %s %.1f\n", k, z)
+	// fmt.Printf(" -- ge %s %.1f\n", k, z)
 	order := idx.orders[k]
 	val := idx.kVal(k)
 	n := len(idx.rects)
@@ -273,19 +284,22 @@ func (idx *rectIndex) makeOrdering(attr attribute) []int {
 	return order
 }
 
-type attribute func(model.PdfRectangle) float64
+type attribute func(textRect) float64
 
 var kindAttr = map[attrKind]attribute{
-	kLlx: attrLlx,
-	kUrx: attrUrx,
-	kLly: attrLly,
-	kUry: attrUry}
-var kindName = map[attrKind]string{kLlx: "Llx", kUrx: "Urx", kLly: "Lly", kUry: "Ury"}
+	kLlx:   attrLlx,
+	kUrx:   attrUrx,
+	kLly:   attrLly,
+	kUry:   attrUry,
+	kDepth: attrDepth,
+}
+var kindName = map[attrKind]string{kLlx: "Llx", kUrx: "Urx", kLly: "Lly", kUry: "Ury", kDepth: "depth"}
 
-func attrLlx(r model.PdfRectangle) float64 { return r.Llx }
-func attrUrx(r model.PdfRectangle) float64 { return r.Urx }
-func attrLly(r model.PdfRectangle) float64 { return r.Lly }
-func attrUry(r model.PdfRectangle) float64 { return r.Ury }
+func attrLlx(r textRect) float64   { return r.Llx }
+func attrUrx(r textRect) float64   { return r.Urx }
+func attrLly(r textRect) float64   { return r.Lly }
+func attrUry(r textRect) float64   { return r.Ury }
+func attrDepth(r textRect) float64 { return r.depth }
 
 type attrKind int
 
@@ -302,9 +316,19 @@ const (
 
 type set map[int]bool
 
+func (s set) String() string {
+	vals := make([]int, 0, len(s))
+	for e := range s {
+		vals = append(vals, e)
+	}
+	sort.Ints(vals)
+	return fmt.Sprintf("%d %+v", len(vals), vals)
+}
+
 func (s set) has(e int) bool {
 	return s[e]
 }
+
 func (s set) add(e int) {
 	s[e] = true
 }
@@ -313,13 +337,13 @@ func (s set) del(e int) {
 }
 
 func (s set) and(other set) set {
-	fmt.Printf("and ------------\n\t  s=%+v\n\toth=%+v\n", s, other)
+	// fmt.Printf("and ------------\n\t  s=%+v\n\toth=%+v\n", s, other)
 	intersection := set{}
 	for e := range s {
 		if other[e] {
 			intersection[e] = true
 		}
-		fmt.Printf("%4d:  %t\n", e, other[e])
+		// fmt.Printf("%4d:  %t\n", e, other[e])
 	}
 	return intersection
 }
@@ -332,7 +356,7 @@ func makeSet(order []int) set {
 	return s
 }
 
-func hasRect(rects []model.PdfRectangle, r0 model.PdfRectangle) bool {
+func hasRect(rects []textRect, r0 textRect) bool {
 	for _, r := range rects {
 		if rectEquals(r0, r) {
 			return true
@@ -342,7 +366,7 @@ func hasRect(rects []model.PdfRectangle, r0 model.PdfRectangle) bool {
 	return false
 }
 
-func sameRects(rects1, rects2 []model.PdfRectangle) bool {
+func sameRects(rects1, rects2 []textRect) bool {
 	for _, r := range rects1 {
 		if !hasRect(rects2, r) {
 			return false
@@ -358,7 +382,7 @@ func sameRects(rects1, rects2 []model.PdfRectangle) bool {
 
 // rectEquals returns true if `b1` and `b2` corners are within `tol` of each other.
 // NOTE: All the coordinates in this source file are in points.
-func rectEquals(b1, b2 model.PdfRectangle) bool {
+func rectEquals(b1, b2 textRect) bool {
 	return math.Abs(b1.Llx-b2.Llx) <= tol &&
 		math.Abs(b1.Lly-b2.Lly) <= tol &&
 		math.Abs(b1.Urx-b2.Urx) <= tol &&
@@ -367,7 +391,7 @@ func rectEquals(b1, b2 model.PdfRectangle) bool {
 
 const tol = 0.01
 
-func sortedRects(rects []model.PdfRectangle) []model.PdfRectangle {
+func sortedRects(rects []textRect) []textRect {
 	sort.Slice(rects, func(i, j int) bool { return rects[i].Llx < rects[j].Llx })
 	return rects
 }

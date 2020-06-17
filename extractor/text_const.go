@@ -10,7 +10,7 @@ const (
 	verbose         = false
 	verboseGeom     = false
 	verbosePage     = false
-	verbosePara     = false
+	verbosePara     = true
 	verboseParaLine = verbosePara && true
 	verboseParaWord = verboseParaLine && false
 	verboseTable    = false

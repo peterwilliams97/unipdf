@@ -8,6 +8,7 @@ package extractor
 import (
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"unicode/utf8"
 
@@ -122,6 +123,13 @@ func newTextWord(marks []*textMark, pageSize model.PdfRectangle) *textWord {
 		fontsize:     fontsize,
 	}
 	serial.word++
+	if r.Width() == 0 || r.Height() == 0 {
+		fmt.Fprintf(os.Stderr, "\n %d marks\n", len(marks))
+		for i, tm := range marks {
+			fmt.Fprintf(os.Stderr, "%4d: %s\n", i, tm.String())
+		}
+		panic(word)
+	}
 	return &word
 }
 

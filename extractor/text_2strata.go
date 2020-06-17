@@ -8,6 +8,7 @@ package extractor
 import (
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strings"
 
@@ -264,6 +265,11 @@ func (s *text2Strata) isHomogenous(w *textWord) bool {
 
 // merge2Stratas merges paras less than a character width to the left of a strata;
 func merge2Stratas(paras []*text2Strata) []*text2Strata {
+	for _, para := range paras {
+		if para.empty() {
+			panic(para)
+		}
+	}
 	if len(paras) <= 1 {
 		return paras
 	}
@@ -283,16 +289,16 @@ func merge2Stratas(paras []*text2Strata) []*text2Strata {
 		}
 		return i < j
 	})
-	merged := []*text2Strata{paras[0]}
-	absorbed := map[int]bool{0: true}
-	numAbsorbed := 0
+
+	var merged []*text2Strata
+	absorbed := set{}
 	for i0 := 0; i0 < len(paras); i0++ {
-		if _, ok := absorbed[i0]; ok {
+		if absorbed.has(i0) {
 			continue
 		}
 		para0 := paras[i0]
 		for i1 := i0 + 1; i1 < len(paras); i1++ {
-			if _, ok := absorbed[i0]; ok {
+			if absorbed.has(i1) {
 				continue
 			}
 			para1 := paras[i1]
@@ -300,16 +306,14 @@ func merge2Stratas(paras []*text2Strata) []*text2Strata {
 			r.Llx -= para0.fontsize * 0.99
 			if rectContainsRect(r, para1.PdfRectangle) {
 				para0.absorb(para1)
-				absorbed[i1] = true
-				numAbsorbed++
+				absorbed.add(i1)
 			}
 		}
 		merged = append(merged, para0)
-		absorbed[i0] = true
 	}
 
-	if len(paras) != len(merged)+numAbsorbed {
-		common.Log.Info("merge2Stratas: %d->%d absorbed=%d", len(paras), len(merged), numAbsorbed)
+	if len(paras) != len(merged)+len(absorbed) {
+		common.Log.Info("merge2Stratas: %d->%d absorbed=%d", len(paras), len(merged), len(absorbed))
 		panic("wrong")
 	}
 	return merged
@@ -317,8 +321,10 @@ func merge2Stratas(paras []*text2Strata) []*text2Strata {
 
 // absorb absords `strata` into `s`.
 func (s *text2Strata) absorb(strata *text2Strata) {
+	if strata.empty() {
+		panic(strata)
+	}
 	s.pullSet(strata, strata.elements)
-
 }
 
 // String returns a description of `s`.
@@ -430,7 +436,9 @@ func (s *text2Strata) depthIndexes() []int {
 func (strata *text2Strata) composePara() *textPara {
 	para := newTextPara(strata.PdfRectangle)
 
-	common.Log.Info("composePara: para=%s", para)
+	if verbosePage {
+		common.Log.Info("composePara: para=%s", para)
+	}
 	if para.PdfRectangle.Width() == 0 {
 		panic(strata)
 	}
@@ -449,8 +457,9 @@ func (strata *text2Strata) composePara() *textPara {
 		minDepth := depth - lineDepthR*fontsize
 		maxDepth := depth + lineDepthR*fontsize
 		maxIntraWordGap := maxIntraWordGapR * fontsize
-
-		common.Log.Info(" strata=%d line=%s", len(strata.elements), line)
+		if verbosePage {
+			common.Log.Info(" strata=%d line=%s", len(strata.elements), line)
+		}
 
 		// Find the rest of the words in the line.
 		for !strata.empty() {
@@ -466,7 +475,9 @@ func (strata *text2Strata) composePara() *textPara {
 			leftWord := strata.words[e]
 			lastWord := line.words[len(line.words)-1]
 			gap := gapReading(leftWord, lastWord)
-			common.Log.Info(" strata=%d leftWord=%s", len(strata.elements), leftWord)
+			if verbosePage {
+				common.Log.Info(" strata=%d leftWord=%s", len(strata.elements), leftWord)
+			}
 			if gap < -maxIntraLineOverlapR*fontsize {
 				// New line
 				break
@@ -526,4 +537,26 @@ func (s *text2Strata) newTextLine(seed int) *textLine {
 	line.appendWord(word)
 	s.elements.del(seed)
 	return &line
+}
+
+func (s text2Strata) vaidate() {
+	show := func() {
+		fmt.Fprintln(os.Stderr, "")
+		for e := range s.elements {
+			fmt.Fprintf(os.Stderr, "%4d: %s\n", e, s.words[e])
+		}
+	}
+	err := fmt.Errorf("s=%s words=%s", s.String(), s.elements.String())
+	if s.Width() == 0 {
+		show()
+		panic(err)
+	}
+	if s.Height() == 0 {
+		show()
+		panic(err)
+	}
+	if len(s.elements) == 0 {
+		show()
+		panic(err)
+	}
 }

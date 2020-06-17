@@ -10,7 +10,7 @@ const (
 	verbose         = false
 	verboseGeom     = false
 	verbosePage     = false
-	verbosePara     = true
+	verbosePara     = false
 	verboseParaLine = verbosePara && true
 	verboseParaWord = verboseParaLine && false
 	verboseTable    = false
@@ -18,7 +18,7 @@ const (
 
 // The following constants control the approaches used in the code.
 const (
-	useTables = true
+	useTables = false
 	doHyphens = true
 	useEBBox  = false
 )

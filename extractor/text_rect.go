@@ -231,6 +231,35 @@ func (idx *rectIndex) le(k attrKind, z float64) set {
 	return makeSet(order[:i])
 }
 
+func (idx *rectIndex) filterLE(k attrKind, z float64, elements set) set {
+	// fmt.Printf(" -- le %s %.1f\n", k, z)
+	order := idx.orders[k]
+	val := idx.kVal(k)
+	n := len(idx.rects)
+	if z < val(0) {
+		// fmt.Printf("##le %s %.1f => nil (%.1f)\n", k, z, val(0))
+		return nil
+	}
+	if z >= val(n-1) {
+		return makeSet(order)
+	}
+
+	// i is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
+	i := sort.Search(n, func(i int) bool { return val(i) > z })
+	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
+	if !(0 <= i) {
+		panic(n)
+		return nil
+	}
+	filtered := set{}
+	for _, e := range order[:i] {
+		if elements.has(s) {
+			filtered.add(e)
+		}
+	}
+	return filtered
+}
+
 func (idx *rectIndex) ile(k attrKind, z float64) int {
 	fmt.Printf(" -- ile %s %.1f\n", k, z)
 	val := idx.kVal(k)
@@ -348,11 +377,15 @@ func (s set) and(other set) set {
 	return intersection
 }
 
+var makeSetCaller = map[string]int{}
+
 func makeSet(order []int) set {
 	s := set{}
 	for _, e := range order {
 		s[e] = true
 	}
+	caller := fileLine(1, false)
+	makeSetCaller[caller]++
 	return s
 }
 

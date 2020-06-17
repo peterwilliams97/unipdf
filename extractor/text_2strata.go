@@ -146,6 +146,12 @@ func (s *text2Strata) depthBandSet(minDepth, maxDepth float64) set {
 // reading direction value in the depth region `minDepthIndex` < depth <= minDepthIndex+ 4*fontsize
 // This avoids choosing a bin that starts with a superscript word.
 func (s *text2Strata) firstReadingWord() int {
+	if s == nil {
+		panic("s")
+	}
+	if s.idx == nil {
+		panic("s.idx")
+	}
 	minDepthElt := s.idx.orders[kDepth][0]
 	minDepth := s.words[minDepthElt].depth
 	fontsize := s.words[minDepthElt].fontsize

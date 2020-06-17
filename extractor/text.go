@@ -957,7 +957,7 @@ func (pt PageText) Tables() []TextTable {
 // maps substrings of the page text to locations on the PDF page.
 func (pt *PageText) computeViews() {
 	common.Log.Trace("ToTextLocation: %d elements", len(pt.marks))
-	paras := makeTextPage(pt.marks, pt.pageSize, 0)
+	paras := makeText2Page(pt.marks, pt.pageSize, 0)
 	b := new(bytes.Buffer)
 	paras.writeText(b)
 	pt.viewText = b.String()

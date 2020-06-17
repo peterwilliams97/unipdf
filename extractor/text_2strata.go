@@ -41,16 +41,14 @@ type readingRange struct {
 
 // lo <= w.Llx <= hi
 func (s *text2Strata) readingSpanLlx(lo, hi float64) set {
-	o1 := s.idx.le(kLlx, hi)
-	o2 := s.idx.ge(kLlx, lo)
-	return o1.and(o2)
+	return s.idx.filterLEGE(kLlx, lo, hi, s.elements)
 }
 
 // lo <= w.Llx  && w.Urx <= hi
 func (s *text2Strata) readingSpan(lo, hi float64) set {
-	o1 := s.idx.le(kUrx, hi)
-	o2 := s.idx.ge(kLlx, lo)
-	return o1.and(o2)
+	elements := s.idx.filterLE(kUrx, hi, s.elements)
+	elements = s.idx.filterGE(kLlx, lo, s.elements)
+	return elements
 }
 
 func (s *text2Strata) filter(conditions []rectQuery) set {
@@ -170,9 +168,12 @@ func (s *text2Strata) firstReadingWord() int {
 	if fontsize < 0.001 {
 		panic(fontsize)
 	}
-	lower := s.idx.le(kDepth, minDepth+4*fontsize)
-	upper := s.idx.ge(kDepth, minDepth)
-	elements := s.elements.and(upper).and(lower)
+	// common.Log.Info("word0=%s", word)
+	elements := s.idx.filterLEGE(kDepth, minDepth, minDepth+4*fontsize, s.elements)
+	if len(elements) == 0 {
+		panic("no elements")
+	}
+
 	for _, e := range s.idx.orders[kLlx] {
 		if elements.has(e) {
 			return e
@@ -183,9 +184,8 @@ func (s *text2Strata) firstReadingWord() int {
 }
 
 func (s *text2Strata) firstReadingWordRange(minDepth, maxDepth float64) (int, bool) {
-	lower := s.idx.ge(kDepth, minDepth)
-	upper := s.idx.le(kDepth, maxDepth)
-	elements := s.elements.and(lower).and(upper)
+	elements := s.idx.filterGE(kDepth, minDepth, s.elements)
+	elements = s.idx.filterLE(kDepth, maxDepth, elements)
 	for _, e := range s.idx.orders[kLlx] {
 		if elements.has(e) {
 			return e, true

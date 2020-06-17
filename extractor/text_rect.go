@@ -165,6 +165,7 @@ type rectQuery struct {
 	attr attrKind
 	comp compKind
 	val  float64
+	val2 float64
 }
 
 type compKind int
@@ -172,24 +173,41 @@ type compKind int
 const (
 	compLe compKind = iota
 	compGe
+	compLeGe
 )
 
 func (idx *rectIndex) filter(elements set, conditions []rectQuery) set {
 	for _, q := range conditions {
-		elements = elements.and(idx.filterOne(q))
+		elements1 := idx.filterOne(q, elements)
+		// for e := range elements1 {
+		// 	if !elements.has(e) {
+		// 		panic(fmt.Errorf("%d not in %s", e, elements))
+		// 	}
+		// }
+		elements = elements1
 	}
 	return elements
 }
 
-func (idx *rectIndex) filterOne(q rectQuery) set {
+func (idx *rectIndex) filterOne(q rectQuery, elements set) set {
+	var elements1 set
 	switch q.comp {
 	case compLe:
-		return idx.le(q.attr, q.val)
+		elements1 = idx.filterLE(q.attr, q.val, elements)
 	case compGe:
-		return idx.ge(q.attr, q.val)
+		elements1 = idx.filterGE(q.attr, q.val, elements)
+	case compLeGe:
+		elements1 = idx.filterLEGE(q.attr, q.val, q.val2, elements)
 	default:
 		panic(fmt.Errorf("comp not implemented q=%+v", q))
 	}
+	// for e := range elements1 {
+	// 	if !elements.has(e) {
+	// 		panic(fmt.Errorf("%d not in %s", e, elements))
+	// 	}
+	// }
+	return elements1
+
 	return nil
 }
 
@@ -241,7 +259,7 @@ func (idx *rectIndex) filterLE(k attrKind, z float64, elements set) set {
 		return nil
 	}
 	if z >= val(n-1) {
-		return makeSet(order)
+		return elements
 	}
 
 	// i is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
@@ -253,7 +271,7 @@ func (idx *rectIndex) filterLE(k attrKind, z float64, elements set) set {
 	}
 	filtered := set{}
 	for _, e := range order[:i] {
-		if elements.has(s) {
+		if elements.has(e) {
 			filtered.add(e)
 		}
 	}
@@ -292,6 +310,70 @@ func (idx *rectIndex) ge(k attrKind, z float64) set {
 		return nil
 	}
 	return makeSet(order[i:])
+}
+
+func (idx *rectIndex) filterGE(k attrKind, z float64, elements set) set {
+	// fmt.Printf(" -- ge %s %.1f\n", k, z)
+	order := idx.orders[k]
+	val := idx.kVal(k)
+	n := len(idx.rects)
+	if z <= val(0) {
+		return elements
+	}
+	if z > val(n-1) {
+		return nil
+	}
+	i := sort.Search(n, func(i int) bool { return val(i) >= z })
+	if !(0 <= i && i < n) {
+		panic(z)
+		return nil
+	}
+	filtered := set{}
+	for _, e := range order[:i] {
+		if elements.has(e) {
+			filtered.add(e)
+		}
+	}
+	return filtered
+}
+
+func (idx *rectIndex) filterLEGE(k attrKind, lo, hi float64, elements set) set {
+	// fmt.Printf(" -- le %s %.1f\n", k, z)
+	order := idx.orders[k]
+	val := idx.kVal(k)
+	n := len(idx.rects)
+	if hi < val(0) {
+		// fmt.Printf("##le %s %.1f => nil (%.1f)\n", k, z, val(0))
+		common.Log.Error("%.2f < %.2f", hi, val(0))
+		return nil
+	}
+	if lo > val(n-1) {
+		common.Log.Error("%.2f > %.2f", lo, val(n-1))
+		return nil
+	}
+
+	// i0 is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
+	i0 := sort.Search(n, func(i int) bool { return val(i) >= lo })
+	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
+	if !(0 <= i0) {
+		panic(n)
+		return nil
+	}
+
+	// i1 is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
+	i1 := sort.Search(n, func(i int) bool { return val(i) > hi })
+	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
+	if !(0 <= i1) {
+		panic(n)
+		return nil
+	}
+	filtered := set{}
+	for _, e := range order[i0:i1] {
+		if elements.has(e) {
+			filtered.add(e)
+		}
+	}
+	return filtered
 }
 
 func (idx *rectIndex) kVal(k attrKind) func(int) float64 {

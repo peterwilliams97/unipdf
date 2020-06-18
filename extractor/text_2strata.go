@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/RoaringBitmap/roaring"
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
 )
@@ -19,6 +20,7 @@ import (
 type universe struct {
 	idx        *rectIndex // bins[n] = w: n*depthBinPoints <= w.depth < (n+1)*depthBinPoints
 	words      []*textWord
+	elements   *roaring.Bitmap
 	pageHeight float64
 }
 
@@ -28,7 +30,7 @@ type text2Strata struct {
 	serial             int // Sequence number for debugging.
 	model.PdfRectangle     // Bounding box (union of words' in bins bounding boxes).
 	fontsize           float64
-	elements           set
+	elements           *roaring.Bitmap
 	*universe
 }
 
@@ -39,21 +41,17 @@ type readingRange struct {
 	urxLo, urxHi float64
 }
 
-// lo <= w.Llx <= hi
-func (s *text2Strata) readingSpanLlx(lo, hi float64) set {
-	return s.idx.filterLEGE(kLlx, lo, hi, s.elements)
-}
+// // lo <= w.Llx <= hi
+// func (s *text2Strata) readingSpanLlx(lo, hi float64) set {
+// 	return s.idx.filterLEGE(kLlx, lo, hi, s.elements)
+// }
 
-// lo <= w.Llx  && w.Urx <= hi
-func (s *text2Strata) readingSpan(lo, hi float64) set {
-	elements := s.idx.filterLE(kUrx, hi, s.elements)
-	elements = s.idx.filterGE(kLlx, lo, s.elements)
-	return elements
-}
-
-func (s *text2Strata) filter(conditions []rectQuery) set {
-	return s.idx.filter(s.elements, conditions)
-}
+// // lo <= w.Llx  && w.Urx <= hi
+// func (s *text2Strata) readingSpan(lo, hi float64) set {
+// 	elements := s.idx.filterLE(kUrx, hi, s.elements)
+// 	elements = s.idx.filterGE(kLlx, lo, s.elements)
+// 	return elements
+// }
 
 // makeText2Strata builds a text2Strata from `words` by putting the words into the appropriate
 // depth bins.
@@ -62,31 +60,38 @@ func makeUniverse(words []*textWord, pageHeight float64) *universe {
 	for i, w := range words {
 		rects[i] = textRect{PdfRectangle: w.PdfRectangle, depth: w.depth, fontsize: w.fontsize}
 	}
+	elements := roaring.New()
+	elements.AddRange(0, uint64(len(words)))
 	return &universe{
 		words:      words,
 		idx:        makeRectIndex(rects),
-		pageHeight: pageHeight}
+		elements:   elements,
+		pageHeight: pageHeight,
+	}
 
 }
 
 // newText2Strata returns an empty text2Strata with page height `pageHeight`.
-func (u *universe) newText2Strata(page *text2Strata, element int) *text2Strata {
-	s := &text2Strata{serial: serial.strata, universe: u, elements: set{}}
+func (u *universe) newText2Strata(page *text2Strata, e uint32) *text2Strata {
+	s := &text2Strata{
+		serial:   serial.strata,
+		universe: u,
+		elements: roaring.BitmapOf(e),
+	}
 	serial.strata++
-	word := s.words[element]
+	word := s.words[e]
 	s.PdfRectangle = word.PdfRectangle
 	s.fontsize = word.fontsize
-	s.elements.add(element)
-	page.elements.del(element)
+	page.elements.Remove(e)
 	return s
 }
 
 func (u *universe) makeText2Strata() *text2Strata {
-	elements := make(set, len(u.words))
-	for i := range u.words {
-		elements.add(i)
+	s := &text2Strata{
+		serial:   serial.strata,
+		universe: u,
+		elements: u.elements.Clone(),
 	}
-	s := &text2Strata{serial: serial.strata, universe: u, elements: elements}
 	serial.strata++
 	return s
 }
@@ -98,46 +103,38 @@ func (u *universe) makeText2Strata() *text2Strata {
 // and applies `move2Word`(depthIdx, s,para w) to them.
 // If `detectOnly` is true, don't appy move2Word.
 // If `freezeDepth` is true, don't update minDepth and maxDepth in scan as words are added.
-func (s *text2Strata) scanBand(fontTol, fontsize float64, readingFilter []rectQuery) set {
-	elements := s.filter(readingFilter)
-	for e := range elements {
-		if !s.elements.has(e) {
-			panic(fmt.Errorf("%d not in %s", e, s.elements))
-		}
-	}
-	elements = s.filterFont(elements, fontTol, fontsize)
-	for e := range elements {
-		if !s.elements.has(e) {
-			panic(fmt.Errorf("%d not in %s", e, s.elements))
-		}
-	}
+func (s *text2Strata) scanBand(fontTol, fontsize float64, readingFilter []rectQuery) *roaring.Bitmap {
+	elements := s.elements.Clone()
+	s.idx.filter(readingFilter, elements)
+	// elements = s.filterFont(elements, fontTol, fontsize)
+	// elements.And(filter)
 	return elements
 }
 
-func (s *text2Strata) filterFont(elements set, fontTol, fontsize float64) set {
-	if fontTol < 0 {
-		return elements
-	}
-	filtered := set{}
-	for e := range elements {
-		word := s.words[e]
-		fontRatio1 := math.Abs(word.fontsize-fontsize) / fontsize
-		fontRatio2 := word.fontsize / fontsize
-		fontRatio := math.Min(fontRatio1, fontRatio2)
-		if fontRatio > fontTol {
-			continue
-		}
-		filtered.add(e)
-	}
-	return filtered
-}
+// func (s *text2Strata) filterFont(elements set, fontTol, fontsize float64) set {
+// 	if fontTol < 0 {
+// 		return elements
+// 	}
+// 	filtered := set{}
+// 	for e := range elements {
+// 		word := s.words[e]
+// 		fontRatio1 := math.Abs(word.fontsize-fontsize) / fontsize
+// 		fontRatio2 := word.fontsize / fontsize
+// 		fontRatio := math.Min(fontRatio1, fontRatio2)
+// 		if fontRatio > fontTol {
+// 			continue
+// 		}
+// 		filtered.add(e)
+// 	}
+// 	return filtered
+// }
 
-// depthBand returns the indexes of the words with depth: `minDepth` <= depth <= `maxDepth`.
-func (s *text2Strata) depthBandSet(minDepth, maxDepth float64) set {
-	yhi := s.pageHeight - minDepth
-	ylo := s.pageHeight - maxDepth
-	return s.idx.ge(kLly, ylo).and(s.idx.le(kLly, yhi)) // !@#$
-}
+// // depthBand returns the indexes of the words with depth: `minDepth` <= depth <= `maxDepth`.
+// func (s *text2Strata) depthBandSet(minDepth, maxDepth float64) *roaring.Bitmap {
+// 	yhi := s.pageHeight - minDepth
+// 	ylo := s.pageHeight - maxDepth
+// 	return s.idx.ge(kLly, ylo).and(s.idx.le(kLly, yhi)) // !@#$
+// }
 
 // func (s *text2Strata) depthBand(minDepth, maxDepth float64) []*textWord {
 // 	indexes := s.depthBandSet(minDepth, maxDepth)
@@ -154,7 +151,7 @@ func (s *text2Strata) depthBandSet(minDepth, maxDepth float64) set {
 // firstReadingIndex returns the index of the depth bin that starts with that word with the smallest
 // reading direction value in the depth region `minDepthIndex` < depth <= minDepthIndex+ 4*fontsize
 // This avoids choosing a bin that starts with a superscript word.
-func (s *text2Strata) firstReadingWord() int {
+func (s *text2Strata) firstReadingWord() uint32 {
 	if s == nil {
 		panic("s")
 	}
@@ -169,13 +166,13 @@ func (s *text2Strata) firstReadingWord() int {
 		panic(fontsize)
 	}
 	// common.Log.Info("word0=%s", word)
-	elements := s.idx.filterLEGE(kDepth, minDepth, minDepth+4*fontsize, s.elements)
-	if len(elements) == 0 {
+	elements := s.elements.Clone()
+	s.idx.filterLEGE(kDepth, minDepth, minDepth+4*fontsize, elements)
+	if elements.IsEmpty() {
 		panic("no elements")
 	}
-
 	for _, e := range s.idx.orders[kLlx] {
-		if elements.has(e) {
+		if elements.Contains(e) {
 			return e
 		}
 	}
@@ -183,11 +180,11 @@ func (s *text2Strata) firstReadingWord() int {
 	return s.idx.orders[kLlx][0]
 }
 
-func (s *text2Strata) firstReadingWordRange(minDepth, maxDepth float64) (int, bool) {
-	elements := s.idx.filterGE(kDepth, minDepth, s.elements)
-	elements = s.idx.filterLE(kDepth, maxDepth, elements)
+func (s *text2Strata) firstReadingWordRange(minDepth, maxDepth float64) (uint32, bool) {
+	elements := s.elements.Clone()
+	s.idx.filterLEGE(kDepth, minDepth, maxDepth, elements)
 	for _, e := range s.idx.orders[kLlx] {
-		if elements.has(e) {
+		if elements.Contains(e) {
 			return e, true
 		}
 	}
@@ -196,47 +193,38 @@ func (s *text2Strata) firstReadingWordRange(minDepth, maxDepth float64) (int, bo
 
 // empty returns true if `s` has no elements.
 func (s *text2Strata) empty() bool {
-	return len(s.elements) == 0
+	return s.elements.IsEmpty()
 }
 
-func (s *text2Strata) pullSet(page *text2Strata, elements set) {
-	if len(elements) == 0 {
+func (s *text2Strata) pullSet(page *text2Strata, elements *roaring.Bitmap) {
+	if elements.GetCardinality() == 0 {
 		panic(s)
 	}
-	n0 := len(page.elements)
-	for e := range elements {
-		s.pullWord(page, e)
-	}
-	if len(page.elements) == n0 {
-		panic(elements)
+	page.elements.AndNot(elements)
+	s.elements.Or(elements)
+	for _, e := range elements.ToArray() {
+		s.addWord(e)
 	}
 }
 
 // move2Word moves `word` from 'page'[`depthIdx`] to 'para'[`depthIdx`].
 // !@#$ Use same idx
-func (s *text2Strata) pullWord(page *text2Strata, e int) {
-	if !page.elements.has(e) {
-		panic(fmt.Errorf("%d not in %s", e, page.elements))
-	}
-	n0 := len(page.elements)
+func (s *text2Strata) pullWord(page *text2Strata, e uint32) {
+	page.elements.Add(e)
+	s.elements.Remove(e)
+	s.addWord(e)
+}
+
+func (s *text2Strata) addWord(e uint32) {
 	word := s.words[e]
 	s.PdfRectangle = rectUnion(s.PdfRectangle, word.PdfRectangle)
-	if word.fontsize > s.fontsize {
-		s.fontsize = word.fontsize
-	}
-	s.elements.add(e)
-	page.elements.del(e)
-	if len(page.elements) == n0 {
-		panic(fmt.Errorf("%d not in %s", e, page.elements))
-	}
+	s.fontsize = math.Max(s.fontsize, word.fontsize)
 }
 
 func (s *text2Strata) allWords() []*textWord {
-	var words []*textWord
-	for e, w := range s.words {
-		if s.elements.has(e) {
-			words = append(words, w)
-		}
+	words := make([]*textWord, s.elements.GetCardinality())
+	for i, e := range s.elements.ToArray() {
+		words[i] = s.words[e]
 	}
 	return words
 }
@@ -291,14 +279,14 @@ func merge2Stratas(paras []*text2Strata) []*text2Strata {
 	})
 
 	var merged []*text2Strata
-	absorbed := set{}
+	absorbed := roaring.New()
 	for i0 := 0; i0 < len(paras); i0++ {
-		if absorbed.has(i0) {
+		if absorbed.ContainsInt(i0) {
 			continue
 		}
 		para0 := paras[i0]
 		for i1 := i0 + 1; i1 < len(paras); i1++ {
-			if absorbed.has(i1) {
+			if absorbed.ContainsInt(i1) {
 				continue
 			}
 			para1 := paras[i1]
@@ -306,14 +294,15 @@ func merge2Stratas(paras []*text2Strata) []*text2Strata {
 			r.Llx -= para0.fontsize * 0.99
 			if rectContainsRect(r, para1.PdfRectangle) {
 				para0.absorb(para1)
-				absorbed.add(i1)
+				absorbed.AddInt(i1)
 			}
 		}
 		merged = append(merged, para0)
 	}
 
-	if len(paras) != len(merged)+len(absorbed) {
-		common.Log.Info("merge2Stratas: %d->%d absorbed=%d", len(paras), len(merged), len(absorbed))
+	if len(paras) != len(merged)+int(absorbed.GetCardinality()) {
+		common.Log.Info("merge2Stratas: %d->%d absorbed=%d",
+			len(paras), len(merged), absorbed.GetCardinality())
 		panic("wrong")
 	}
 	return merged
@@ -354,7 +343,7 @@ func (s *text2Strata) minDepth() float64 {
 func (s *text2Strata) minDepthWord() *textWord {
 	order := s.idx.orders[kDepth]
 	for i := 0; i < len(order); i++ {
-		if s.elements.has(order[i]) {
+		if s.elements.Contains(order[i]) {
 			return s.words[order[i]]
 		}
 	}
@@ -366,7 +355,7 @@ func (s *text2Strata) minDepthWord() *textWord {
 func (s *text2Strata) maxDepth() float64 {
 	order := s.idx.orders[kDepth]
 	for i := len(order) - 1; i >= 0; i-- {
-		if s.elements.has(order[i]) {
+		if s.elements.Contains(order[i]) {
 			return s.words[order[i]].depth
 		}
 	}
@@ -410,26 +399,26 @@ func (s *text2Strata) depthRange() (float64, float64) {
 	return s.llyToDepth(hi), s.llyToDepth(lo)
 }
 
-func (s *text2Strata) depthIndexes() []int {
-	order := s.idx.orders[kLly]
-	n := len(order)
-	lo := s.idx.rects[order[0]].Lly
-	hi := s.idx.rects[order[n-1]].Lly
+// func (s *text2Strata) depthIndexes() []int {
+// 	order := s.idx.orders[kLly]
+// 	n := len(order)
+// 	lo := s.idx.rects[order[0]].Lly
+// 	hi := s.idx.rects[order[n-1]].Lly
 
-	i0 := 0
-	indexes := []int{i0}
-	for y := hi; ; y -= depthBinPoints {
-		i := s.idx.ile(kLly, y)
-		if i > i0 {
-			indexes = append(indexes, i)
-			i0 = i
-		}
-		if y < lo {
-			break
-		}
-	}
-	return indexes
-}
+// 	i0 := 0
+// 	indexes := []int{i0}
+// 	for y := hi; ; y -= depthBinPoints {
+// 		i := s.idx.ile(kLly, y)
+// 		if i > i0 {
+// 			indexes = append(indexes, i)
+// 			i0 = i
+// 		}
+// 		if y < lo {
+// 			break
+// 		}
+// 	}
+// 	return indexes
+// }
 
 // composePara builds a textPara from the words in `strata`.
 // It does this by arranging the words in `strata` into lines.
@@ -458,25 +447,25 @@ func (strata *text2Strata) composePara() *textPara {
 		maxDepth := depth + lineDepthR*fontsize
 		maxIntraWordGap := maxIntraWordGapR * fontsize
 		if verbosePage {
-			common.Log.Info(" strata=%d line=%s", len(strata.elements), line)
+			common.Log.Info(" strata=%d line=%s", strata.elements.GetCardinality(), line)
 		}
 
 		// Find the rest of the words in the line.
 		for !strata.empty() {
-			n0 := len(strata.elements)
+			n0 := strata.elements.GetCardinality()
 			// `leftWord` is the left-most word w: minDepth <= w.depth <= maxDepth.
 			e, found := strata.firstReadingWordRange(minDepth, maxDepth)
 			if !found {
 				break
 			}
-			if !strata.elements.has(e) {
+			if !strata.elements.Contains(e) {
 				panic(strata)
 			}
 			leftWord := strata.words[e]
 			lastWord := line.words[len(line.words)-1]
 			gap := gapReading(leftWord, lastWord)
 			if verbosePage {
-				common.Log.Info(" strata=%d leftWord=%s", len(strata.elements), leftWord)
+				common.Log.Info(" strata=%d leftWord=%s", strata.elements.GetCardinality(), leftWord)
 			}
 			if gap < -maxIntraLineOverlapR*fontsize {
 				// New line
@@ -488,8 +477,8 @@ func (strata *text2Strata) composePara() *textPara {
 			}
 			// remove `leftWord` from `strata` append it to `line`.
 			line.appendWord(leftWord)
-			strata.elements.del(e)
-			if n0 == len(strata.elements) {
+			strata.elements.Remove(e)
+			if n0 == strata.elements.GetCardinality() {
 				panic("no change")
 			}
 		}
@@ -525,7 +514,7 @@ func (strata *text2Strata) composePara() *textPara {
 }
 
 // newTextLine creates a line seeded with word `s`.words[`seed`] and removes `seed` from `s`.
-func (s *text2Strata) newTextLine(seed int) *textLine {
+func (s *text2Strata) newTextLine(seed uint32) *textLine {
 	word := s.words[seed]
 	line := textLine{
 		serial:       serial.line,
@@ -535,14 +524,14 @@ func (s *text2Strata) newTextLine(seed int) *textLine {
 	}
 	serial.line++
 	line.appendWord(word)
-	s.elements.del(seed)
+	s.elements.Remove(seed)
 	return &line
 }
 
 func (s text2Strata) vaidate() {
 	show := func() {
 		fmt.Fprintln(os.Stderr, "")
-		for e := range s.elements {
+		for _, e := range s.elements.ToArray() {
 			fmt.Fprintf(os.Stderr, "%4d: %s\n", e, s.words[e])
 		}
 	}
@@ -555,7 +544,7 @@ func (s text2Strata) vaidate() {
 		show()
 		panic(err)
 	}
-	if len(s.elements) == 0 {
+	if s.elements.IsEmpty() {
 		show()
 		panic(err)
 	}

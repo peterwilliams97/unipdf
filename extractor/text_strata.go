@@ -272,7 +272,7 @@ func (s *textStrata) depthBand(minDepth, maxDepth float64) []int {
 		return nil
 	}
 
-	if false { //  CAND
+	if false { //  CAND  Messes up paragraphs
 		indexes := s.aether.indexRange(minDepth, maxDepth)
 		i := 0
 		for _, idx := range indexes {
@@ -289,7 +289,7 @@ func (s *textStrata) depthBand(minDepth, maxDepth float64) []int {
 
 // depthRange returns the sorted keys of s.bins for depths indexes [`minDepth`,`maxDepth`).
 func (s *textStrata) depthRange(minDepthIdx, maxDepthIdx int) []int {
-
+	// return s.aether.indexRange(minDepthIdx, maxDepthIdxi)
 	indexes := s.depthIndexes()
 	var rangeIndexes []int
 	for _, depthIdx := range indexes {

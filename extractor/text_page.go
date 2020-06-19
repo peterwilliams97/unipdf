@@ -285,6 +285,8 @@ func (paras paraList) before(ordering []int, i, j int) bool {
 	if lo > hi {
 		hi, lo = lo, hi
 	}
+	llx := math.Max(a.eBBox.Llx, b.eBBox.Llx)
+	urx := math.Min(a.eBBox.Urx, b.eBBox.Urx)
 
 	llyOrder := paras.llyRange(ordering, lo, hi)
 	for _, k := range llyOrder {
@@ -292,10 +294,7 @@ func (paras paraList) before(ordering []int, i, j int) bool {
 			continue
 		}
 		c := paras[k]
-		if !(lo < c.Lly && c.Lly < hi) {
-			continue
-		}
-		if overlappedXPara(a, c) && overlappedXPara(c, b) {
+		if c.eBBox.Llx <= urx && llx <= c.eBBox.Urx {
 			return false
 		}
 	}
@@ -322,16 +321,15 @@ func (paras paraList) llyOrdering() []int {
 
 // llyRange returns the indexes in `paras` of paras p: lo <= p.Llx < hi
 func (paras paraList) llyRange(ordering []int, lo, hi float64) []int {
-	lly := func(i int) float64 { return paras[ordering[i]].Lly }
 	n := len(paras)
-	if hi < lly(0) || lo > lly(n-1) {
+	if hi < paras[ordering[0]].Lly || lo > paras[ordering[n-1]].Lly {
 		return nil
 	}
 
 	// i0 is the lowest i: lly(i) >= lo
 	// i1 is the lowest i: lly(i) > hi
-	i0 := sort.Search(n, func(i int) bool { return lly(i) >= lo })
-	i1 := sort.Search(n, func(i int) bool { return lly(i) > hi })
+	i0 := sort.Search(n, func(i int) bool { return paras[ordering[i]].Lly >= lo })
+	i1 := sort.Search(n, func(i int) bool { return paras[ordering[i]].Lly > hi })
 
 	return ordering[i0:i1]
 }

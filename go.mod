@@ -3,7 +3,6 @@ module github.com/unidoc/unipdf/v3
 go 1.11
 
 require (
-	github.com/RoaringBitmap/roaring v0.4.23
 	github.com/adrg/sysfont v0.1.0
 	github.com/boombuler/barcode v1.0.0
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0

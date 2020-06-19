@@ -786,6 +786,7 @@ func (to *textObject) renderText(data []byte) error {
 	if verboseGeom {
 		common.Log.Info("renderText: %d codes=%+v texts=%q", len(charcodes), charcodes, texts)
 	}
+
 	common.Log.Trace("renderText: %d codes=%+v runes=%q", len(charcodes), charcodes, len(texts))
 
 	for i, text := range texts {

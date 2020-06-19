@@ -124,14 +124,6 @@ func partial(overlap func(*textStrata, *textWord, float64) bool,
 	}
 }
 
-// partialw return 'overlap`(*textStrata, *textWord, `param`) bool.
-func partial2(overlap func(*text2Strata, *textWord, float64) bool,
-	param float64) func(*text2Strata, *textWord) bool {
-	return func(para *text2Strata, word *textWord) bool {
-		return overlap(para, word, param)
-	}
-}
-
 // overlapped returns true if `a` and `b` overlap.
 func overlapped(a, b bounded) bool {
 	return overlappedX(a, b) && overlappedY(a, b)

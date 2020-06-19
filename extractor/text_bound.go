@@ -139,11 +139,6 @@ func overlappedY(a, b bounded) bool {
 	return intersectsX(a.bbox(), b.bbox())
 }
 
-// // overlappedYRect returns true if `r0` and `r1` overlap in the y direction.
-// func overlappedYRect(r0, r1 model.PdfRectangle) bool {
-// 	return (r0.Lly <= r1.Lly && r1.Lly <= r0.Ury) || (r0.Lly <= r1.Ury && r1.Ury <= r0.Ury)
-// }
-
 // rectUnion returns the smallest axis-aligned rectangle that contains `b1` and `b2`.
 func rectUnion(b1, b2 model.PdfRectangle) model.PdfRectangle {
 	return model.PdfRectangle{
@@ -172,14 +167,8 @@ func intersects(b1, b2 model.PdfRectangle) bool {
 	return intersectsX(b1, b2) && intersectsY(b1, b2)
 }
 
-// overlappedXRect returns true if `r0` and `r1` overlap in the x direction.
-// func overlappedXRect(r0, r1 model.PdfRectangle) bool {
-// 	return (r0.Llx <= r1.Llx && r1.Llx <= r0.Urx) || (r0.Llx <= r1.Urx && r1.Urx <= r0.Urx)
-// }
-
 // intersectsX returns true if `r0` and `r1` overlap in the x axis.
 func intersectsX(r0, r1 model.PdfRectangle) bool {
-	// return (r0.Llx <= r1.Llx && r1.Llx <= r0.Urx) || (r0.Llx <= r1.Urx && r1.Urx <= r0.Urx)
 	return r1.Llx <= r0.Urx && r0.Llx <= r1.Urx
 }
 

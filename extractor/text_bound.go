@@ -136,7 +136,7 @@ func overlappedX(a, b bounded) bool {
 
 // overlappedY returns true if `a` and `b` overlap in the y direction.
 func overlappedY(a, b bounded) bool {
-	return intersectsX(a.bbox(), b.bbox())
+	return intersectsY(a.bbox(), b.bbox())
 }
 
 // rectUnion returns the smallest axis-aligned rectangle that contains `b1` and `b2`.
@@ -173,6 +173,6 @@ func intersectsX(r0, r1 model.PdfRectangle) bool {
 }
 
 // intersectsY returns true if `r0` and `r1` overlap in the y axis.
-func intersectsY(b1, b2 model.PdfRectangle) bool {
-	return b1.Lly <= b2.Ury && b2.Lly <= b1.Ury
+func intersectsY(r0, r1 model.PdfRectangle) bool {
+	return r0.Lly <= r1.Ury && r1.Lly <= r0.Ury
 }

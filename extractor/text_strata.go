@@ -272,15 +272,17 @@ func (s *textStrata) depthBand(minDepth, maxDepth float64) []int {
 		return nil
 	}
 
-	indexes := s.aether.indexRange(minDepth, maxDepth)
-	i := 0
-	for _, idx := range indexes {
-		if _, ok := s.bins[idx]; ok {
-			indexes[i] = idx
-			i++
+	if false { //  CAND
+		indexes := s.aether.indexRange(minDepth, maxDepth)
+		i := 0
+		for _, idx := range indexes {
+			if _, ok := s.bins[idx]; ok {
+				indexes[i] = idx
+				i++
+			}
 		}
+		return indexes[:i]
 	}
-	return indexes[:i]
 
 	return s.depthRange(s.getDepthIdx(minDepth), s.getDepthIdx(maxDepth))
 }
@@ -296,22 +298,6 @@ func (s *textStrata) depthRange(minDepthIdx, maxDepthIdx int) []int {
 		}
 	}
 	return rangeIndexes
-}
-
-// getDepthIdx returns the index into `s.bins` for depth axis value `depth`.
-func (s *textStrata) getDepthIdx(depth float64) int {
-	if len(s.bins) == 0 {
-		panic("NOT ALLOWED")
-	}
-	indexes := s.depthIndexes()
-	depthIdx := depthIndex(depth)
-	if depthIdx < indexes[0] {
-		return indexes[0]
-	}
-	if depthIdx > indexes[len(indexes)-1] {
-		return indexes[len(indexes)-1]
-	}
-	return depthIdx
 }
 
 // firstReadingIndex returns the index of the depth bin that starts with that word with the smallest
@@ -330,6 +316,22 @@ func (s *textStrata) firstReadingIndex(minDepthIdx int) int {
 		}
 	}
 	return firstReadingIdx
+}
+
+// getDepthIdx returns the index into `s.bins` for depth axis value `depth`.
+func (s *textStrata) getDepthIdx(depth float64) int {
+	if len(s.bins) == 0 {
+		panic("NOT ALLOWED")
+	}
+	indexes := s.depthIndexes()
+	depthIdx := depthIndex(depth)
+	if depthIdx < indexes[0] {
+		return indexes[0]
+	}
+	if depthIdx > indexes[len(indexes)-1] {
+		return indexes[len(indexes)-1]
+	}
+	return depthIdx
 }
 
 // empty returns true if the depth bin with index `depthIdx` is empty.

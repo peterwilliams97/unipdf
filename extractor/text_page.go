@@ -224,6 +224,7 @@ func (paras paraList) sortReadingOrder() {
 	sort.Slice(paras, func(i, j int) bool { return diffDepthReading(paras[i], paras[j]) <= 0 })
 	paras.log("diffReadingDepth")
 	order := paras.topoOrder()
+
 	paras.reorder(order)
 }
 
@@ -235,9 +236,7 @@ func (paras paraList) topoOrder() []int {
 	n := len(paras)
 	visited := make([]bool, n)
 	order := make([]int, 0, n)
-	llyOrder := paras.makeOrder()
-
-	// bfr := map[uint64]int{}
+	llyOrder := paras.llyOrdering()
 
 	// sortNode recursively sorts below node `idx` in the adjacency matrix.
 	var sortNode func(idx int)
@@ -245,8 +244,6 @@ func (paras paraList) topoOrder() []int {
 		visited[idx] = true
 		for i := 0; i < n; i++ {
 			if !visited[i] {
-				// k := uint64(idx)*0x1000000 + uint64(i)
-				// bfr[k]++
 				if paras.before(llyOrder, idx, i) {
 					sortNode(i)
 				}
@@ -261,44 +258,6 @@ func (paras paraList) topoOrder() []int {
 		}
 	}
 
-	// var counts []uint64
-	// for k := range bfr {
-	// 	counts = append(counts, k)
-	// }
-	// common.Log.Notice("====================")
-	// common.Log.Notice("n=%d bfr=%d counts=%d", n, len(bfr), len(counts))
-	// sort.Slice(counts, func(i, j int) bool {
-	// 	ci, cj := counts[i], counts[j]
-	// 	ni, nj := bfr[ci], bfr[cj]
-	// 	if ni != nj {
-	// 		return ni > nj
-	// 	}
-	// 	return ci < cj
-	// })
-	// total := 0
-	// for _, cnt := range bfr {
-	// 	total += cnt
-	// 	if cnt > 1 {
-	// 		panic(cnt)
-	// 	}
-	// 	if total > n {
-	// 		panic(cnt)
-	// 	}
-	// }
-
-	// common.Log.Notice("====================")
-	// for i, k := range counts {
-	// 	k0 := k / 0x1000000
-	// 	k1 := k % 0x1000000
-	// 	cnt := bfr[k]
-	// 	if i < 10 {
-	// 		fmt.Printf("%4d: %4d %4d : %4d\n", i, k0, k1, cnt)
-	// 	}
-	// 	if cnt > 1 {
-	// 		panic(cnt)
-	// 	}
-	// }
-
 	return reversed(order)
 }
 
@@ -310,7 +269,7 @@ func (paras paraList) topoOrder() []int {
 //    there does not exist a line segment `c` whose y-coordinates are between `a` and `b` and whose
 //    range of x coordinates overlaps both `a` and `b`.
 // From Thomas M. Breuel "High Performance Document Layout Analysis"
-func (paras paraList) before(order []int, i, j int) bool {
+func (paras paraList) before(ordering []int, i, j int) bool {
 	a, b := paras[i], paras[j]
 	// Breuel's rule 1
 	if overlappedXPara(a, b) && a.Lly > b.Lly {
@@ -321,17 +280,18 @@ func (paras paraList) before(order []int, i, j int) bool {
 	if !(a.eBBox.Urx < b.eBBox.Llx) {
 		return false
 	}
-	lo := a.Lly
-	hi := b.Lly
+
+	lo, hi := a.Lly, b.Lly
 	if lo > hi {
 		hi, lo = lo, hi
 	}
-	llyOrder := paras.indexRange(order, lo, hi)
+
+	llyOrder := paras.llyRange(ordering, lo, hi)
 	for _, k := range llyOrder {
-		c := paras[k]
 		if k == i || k == j {
 			continue
 		}
+		c := paras[k]
 		if !(lo < c.Lly && c.Lly < hi) {
 			continue
 		}
@@ -342,49 +302,38 @@ func (paras paraList) before(order []int, i, j int) bool {
 	return true
 }
 
-func (paras paraList) makeOrder() []int {
-	order := make([]int, len(paras))
-	for i := range paras {
-		order[i] = i
-	}
-	sort.SliceStable(order, func(i, j int) bool {
-		oi, oj := order[i], order[j]
-		return paras[oi].Lly < paras[oj].Lly
-	})
-
-	return order
-}
-
-func (paras paraList) indexRange(order []int, lo, hi float64) []int {
-	depth := func(i int) float64 { return paras[order[i]].Lly }
-	n := len(paras)
-	if hi < depth(0) {
-		return nil
-	}
-	if lo > depth(n-1) {
-		return nil
-	}
-
-	// i0 is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
-	i0 := sort.Search(n, func(i int) bool { return depth(i) >= lo })
-	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
-	if !(0 <= i0) {
-		panic(paras)
-	}
-
-	// i1 is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
-	i1 := sort.Search(n, func(i int) bool { return depth(i) > hi })
-	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
-	if !(0 <= i1) {
-		panic(paras)
-	}
-	return order[i0:i1]
-}
-
-// overlappedX returns true if `r0` and `r1` overlap on the x-axis. !@#$ There is another version
-// of this!
+// overlappedX returns true if `r0` and `r1` overlap on the x-axis.
 func overlappedXPara(r0, r1 *textPara) bool {
 	return intersectsX(r0.eBBox, r1.eBBox)
+}
+
+// llyOrdering and ordering over the indexes of `paras` sorted by Llx is increasing order.
+func (paras paraList) llyOrdering() []int {
+	ordering := make([]int, len(paras))
+	for i := range paras {
+		ordering[i] = i
+	}
+	sort.SliceStable(ordering, func(i, j int) bool {
+		oi, oj := ordering[i], ordering[j]
+		return paras[oi].Lly < paras[oj].Lly
+	})
+	return ordering
+}
+
+// llyRange returns the indexes in `paras` of paras p: lo <= p.Llx < hi
+func (paras paraList) llyRange(ordering []int, lo, hi float64) []int {
+	lly := func(i int) float64 { return paras[ordering[i]].Lly }
+	n := len(paras)
+	if hi < lly(0) || lo > lly(n-1) {
+		return nil
+	}
+
+	// i0 is the lowest i: lly(i) >= lo
+	// i1 is the lowest i: lly(i) > hi
+	i0 := sort.Search(n, func(i int) bool { return lly(i) >= lo })
+	i1 := sort.Search(n, func(i int) bool { return lly(i) > hi })
+
+	return ordering[i0:i1]
 }
 
 // computeEBBoxes computes the eBBox fields in the elements of `paras`.
@@ -397,54 +346,38 @@ func (paras paraList) computeEBBoxes() {
 	for _, para := range paras {
 		para.eBBox = para.PdfRectangle
 	}
-	paraClearing := paras.findClearings()
+	paraYNeighbours := paras.yNeighbours()
 
 	for i, aa := range paras {
 		a := aa.eBBox
 		// [llx, urx] is the reading direction interval for which no paras overlap `a`.
+		llx, urx := -1.0e9, +1.0e9
 
-		llx := -1.0e9
-		urx := +1.0e9
-		if false {
-			for j, bb := range paras {
-				b := bb.eBBox
-				if i == j || !(a.Lly <= b.Ury && b.Lly <= a.Ury) {
-					continue
-				}
-				// y overlap
-
-				// `b` to left of `a`. no x overlap.
-				if b.Urx < a.Llx {
-					llx = math.Max(llx, b.Urx)
-				}
-				// `b` to right of `a`. no x overlap.
-				if a.Urx < b.Llx {
-					urx = math.Min(urx, b.Llx)
-				}
+		for _, j := range paraYNeighbours[aa] {
+			b := paras[j].eBBox
+			if b.Urx < a.Llx { // `b` to left of `a`. no x overlap.
+				llx = math.Max(llx, b.Urx)
+			} else if a.Urx < b.Llx { // `b` to right of `a`. no x overlap.
+				urx = math.Min(urx, b.Llx)
 			}
-		} else {
-			clearing := paraClearing[aa]
-			llx, urx = clearing.llx, clearing.urx
 		}
+
 		// llx extends left from `a` and overlaps no other paras.
 		// urx extends right from `a` and overlaps no other paras.
 
 		// Go through all paras below `a` within interval [llx, urx] in the reading direction and
 		// expand `a` as far as possible to left and right without overlapping any of them.
-
 		for j, bb := range paras {
 			b := bb.eBBox
 			if i == j || b.Ury > a.Lly {
 				continue
 			}
 
-			// If `b` is completely to right of `llx`, extend `a` left to `b`.
 			if llx <= b.Llx && b.Llx < a.Llx {
+				// If `b` is completely to right of `llx`, extend `a` left to `b`.
 				a.Llx = b.Llx
-			}
-
-			// If `b` is completely to left of `urx`, extend `a` right to `b`.
-			if b.Urx <= urx && a.Urx < b.Urx {
+			} else if b.Urx <= urx && a.Urx < b.Urx {
+				// If `b` is completely to left of `urx`, extend `a` right to `b`.
 				a.Urx = b.Urx
 			}
 		}
@@ -460,36 +393,14 @@ func (paras paraList) computeEBBoxes() {
 	}
 }
 
-// reversed return `order` reversed.
-func reversed(order []int) []int {
-	rev := make([]int, len(order))
-	for i, v := range order {
-		rev[len(order)-1-i] = v
-	}
-	return rev
-}
-
-// reorder reorders `para` to the order in `order`.
-func (paras paraList) reorder(order []int) {
-	sorted := make(paraList, len(paras))
-	for i, k := range order {
-		sorted[i] = paras[k]
-	}
-	copy(paras, sorted)
-}
-
 type event struct {
 	y     float64
 	enter bool
 	i     int
 }
 
-type clearing struct {
-	llx float64
-	urx float64
-}
-
-func (paras paraList) findClearings() map[*textPara]clearing {
+// yNeighbours returns a map {para: indexes of paras that y overap para}
+func (paras paraList) yNeighbours() map[*textPara][]int {
 	events := make([]event, 2*len(paras))
 	for i, para := range paras {
 		events[2*i] = event{para.Ury, true, i}
@@ -508,36 +419,49 @@ func (paras paraList) findClearings() map[*textPara]clearing {
 	})
 
 	overlaps := map[int]map[int]bool{}
-	inScan := map[int]bool{}
+	olap := map[int]bool{}
 	for _, e := range events {
 		if e.enter {
 			overlaps[e.i] = map[int]bool{}
-			for i := range inScan {
-				overlaps[e.i][i] = true
+			for i := range olap {
+				if i != e.i {
+					overlaps[e.i][i] = true
+					overlaps[i][e.i] = true
+				}
 			}
-			inScan[e.i] = true
+			olap[e.i] = true
 		} else {
-			delete(inScan, e.i)
+			delete(olap, e.i)
 		}
 	}
-	paraNeighbors := map[*textPara]clearing{}
+	paraNeighbors := map[*textPara][]int{}
 	for i, olap := range overlaps {
-		aa := paras[i]
-		a := aa.eBBox
-		llx, urx := -1.0e9, +1.0e9
+		para := paras[i]
+		neighbours := make([]int, len(olap))
+		k := 0
 		for j := range olap {
-			bb := paras[j]
-			b := bb.eBBox
-			if b.Urx < a.Llx && b.Urx > llx {
-				// `b` to left of `a`. no x overlap.
-				llx = b.Urx
-			} else if a.Urx < b.Llx && b.Llx < urx {
-				// `b` to right of `a`. no x overlap.
-				urx = b.Llx
-			}
+			neighbours[k] = j
+			k++
 		}
-		paraNeighbors[aa] = clearing{llx: llx, urx: urx}
+		paraNeighbors[para] = neighbours
 	}
-
 	return paraNeighbors
+}
+
+// reversed return `order` reversed.
+func reversed(order []int) []int {
+	rev := make([]int, len(order))
+	for i, v := range order {
+		rev[len(order)-1-i] = v
+	}
+	return rev
+}
+
+// reorder reorders `para` to the order in `order`.
+func (paras paraList) reorder(order []int) {
+	sorted := make(paraList, len(paras))
+	for i, k := range order {
+		sorted[i] = paras[k]
+	}
+	copy(paras, sorted)
 }

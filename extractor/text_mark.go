@@ -79,18 +79,19 @@ func (to *textObject) newTextMark(text string, trm transform.Matrix, end transfo
 		serial:       serial.mark,
 	}
 	serial.mark++
-	if !isTextSpace(tm.text) {
-		if tm.Width() == 0.0 {
-			tm.Urx = tm.Llx + 1
-		}
-		if tm.Height() == 0.0 {
-			tm.Ury = tm.Lly + 1
-		}
-		// common.Log.Debug("ERROR: Zero width text. tm=%s", tm.String())
-	}
-	if !isTextSpace(tm.text) && tm.Width() == 0.0 {
-		panic(tm.String())
-	}
+	// CAND Doesn't seem to matter
+	// if !isTextSpace(tm.text) {
+	// 	// if tm.Width() == 0.0 {
+	// 	// 	tm.Urx = tm.Llx + 1
+	// 	// }
+	// 	// if tm.Height() == 0.0 {
+	// 	// 	tm.Ury = tm.Lly + 1
+	// 	// }
+	// 	// common.Log.Debug("ERROR: Zero width text. tm=%s", tm.String())
+	// }
+	// if !isTextSpace(tm.text) && tm.Width() == 0.0 {
+	// 	panic(tm.String())
+	// }
 	if verboseGeom {
 		common.Log.Info("newTextMark: start=%.2f end=%.2f %s", start, end, tm.String())
 	}

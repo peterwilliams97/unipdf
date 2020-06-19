@@ -86,7 +86,7 @@ func (to *textObject) newTextMark(text string, trm transform.Matrix, end transfo
 		if tm.Height() == 0.0 {
 			tm.Ury = tm.Lly + 1
 		}
-		common.Log.Debug("ERROR: Zero width text. tm=%s", tm.String())
+		// common.Log.Debug("ERROR: Zero width text. tm=%s", tm.String())
 	}
 	if !isTextSpace(tm.text) && tm.Width() == 0.0 {
 		panic(tm.String())

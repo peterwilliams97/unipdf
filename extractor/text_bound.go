@@ -139,23 +139,18 @@ func overlapped(a, b bounded) bool {
 
 // overlappedX returns true if `a` and `b` overlap in the x direction.
 func overlappedX(a, b bounded) bool {
-	return overlappedXRect(a.bbox(), b.bbox())
+	return intersectsX(a.bbox(), b.bbox())
 }
 
 // overlappedY returns true if `a` and `b` overlap in the y direction.
 func overlappedY(a, b bounded) bool {
-	return overlappedYRect(a.bbox(), b.bbox())
+	return intersectsX(a.bbox(), b.bbox())
 }
 
-// overlappedXRect returns true if `r0` and `r1` overlap in the x direction.
-func overlappedXRect(r0, r1 model.PdfRectangle) bool {
-	return (r0.Llx <= r1.Llx && r1.Llx <= r0.Urx) || (r0.Llx <= r1.Urx && r1.Urx <= r0.Urx)
-}
-
-// overlappedYRect returns true if `r0` and `r1` overlap in the y direction.
-func overlappedYRect(r0, r1 model.PdfRectangle) bool {
-	return (r0.Lly <= r1.Lly && r1.Lly <= r0.Ury) || (r0.Lly <= r1.Ury && r1.Ury <= r0.Ury)
-}
+// // overlappedYRect returns true if `r0` and `r1` overlap in the y direction.
+// func overlappedYRect(r0, r1 model.PdfRectangle) bool {
+// 	return (r0.Lly <= r1.Lly && r1.Lly <= r0.Ury) || (r0.Lly <= r1.Ury && r1.Ury <= r0.Ury)
+// }
 
 // rectUnion returns the smallest axis-aligned rectangle that contains `b1` and `b2`.
 func rectUnion(b1, b2 model.PdfRectangle) model.PdfRectangle {
@@ -185,9 +180,15 @@ func intersects(b1, b2 model.PdfRectangle) bool {
 	return intersectsX(b1, b2) && intersectsY(b1, b2)
 }
 
+// overlappedXRect returns true if `r0` and `r1` overlap in the x direction.
+// func overlappedXRect(r0, r1 model.PdfRectangle) bool {
+// 	return (r0.Llx <= r1.Llx && r1.Llx <= r0.Urx) || (r0.Llx <= r1.Urx && r1.Urx <= r0.Urx)
+// }
+
 // intersectsX returns true if `r0` and `r1` overlap in the x axis.
-func intersectsX(b1, b2 model.PdfRectangle) bool {
-	return b1.Llx <= b2.Urx && b2.Llx <= b1.Urx
+func intersectsX(r0, r1 model.PdfRectangle) bool {
+	// return (r0.Llx <= r1.Llx && r1.Llx <= r0.Urx) || (r0.Llx <= r1.Urx && r1.Urx <= r0.Urx)
+	return r1.Llx <= r0.Urx && r0.Llx <= r1.Urx
 }
 
 // intersectsY returns true if `r0` and `r1` overlap in the y axis.

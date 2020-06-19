@@ -21,11 +21,12 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 
 	// Break the marks into words
 	words := makeTextWords(marks, pageSize)
+	a := makeAether(words, pageSize.Ury)
 
 	// Divide the words into depth bins with each the contents of each bin sorted by reading direction
-	page := makeTextStrata(words, pageSize.Ury)
+	page := a.makeTextStrata(words)
 	// Divide the page into rectangular regions for each paragraph and creata a textStrata for each one.
-	paraStratas := dividePage(page, pageSize.Ury)
+	paraStratas := a.dividePage(page, pageSize.Ury)
 	paraStratas = mergeStratas(paraStratas)
 	// Arrange the contents of each para into lines
 	paras := make(paraList, len(paraStratas))
@@ -51,7 +52,7 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 }
 
 // dividePage divides page builds a list of paragraph textStrata from `page`, the page textStrata.
-func dividePage(page *textStrata, pageHeight float64) []*textStrata {
+func (a *aether) dividePage(page *textStrata, pageHeight float64) []*textStrata {
 	var paraStratas []*textStrata
 
 	// We move words from `page` to paras until there no words left in page.
@@ -72,7 +73,7 @@ func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 			// Start a new paragraph region `para`.
 			// Build `para` out from the left-most (lowest in reading direction) word `words`[0],
 			// in the bins in and below `depthIdx`.
-			para := newTextStrata(pageHeight)
+			para := a.newTextStrata()
 
 			// words[0] is the leftmost word from the bins in and a few lines below `depthIdx`. We
 			// seed 'para` with this word.
@@ -222,49 +223,83 @@ func (paras paraList) sortReadingOrder() {
 	}
 	sort.Slice(paras, func(i, j int) bool { return diffDepthReading(paras[i], paras[j]) <= 0 })
 	paras.log("diffReadingDepth")
-	adj := paras.adjMatrix()
-	order := topoOrder(adj)
-	printAdj(adj)
+	order := paras.topoOrder()
 	paras.reorder(order)
 }
 
-// adjMatrix creates an adjacency matrix for the DAG of connections over `paras`.
-// Node i is connected to node j if i comes before j by Breuel's rules.
-func (paras paraList) adjMatrix() [][]bool {
-	n := len(paras)
-	adj := make([][]bool, n)
-	reasons := make([][]string, n)
-	for i := range paras {
-		adj[i] = make([]bool, n)
-		reasons[i] = make([]string, n)
-		for j := range paras {
-			if i == j {
-				continue
-			}
-			adj[i][j], reasons[i][j] = paras.before(i, j)
-		}
-	}
+// topoOrder returns the ordering of the topological sort of the nodes with adjacency matrix `adj`.
+func (paras paraList) topoOrder() []int {
 	if verbosePage {
-		show := func(a *textPara) string {
-			return fmt.Sprintf("%6.2f %q", a.eBBox, truncate(a.text(), 70))
-		}
-		common.Log.Info("adjMatrix =======")
+		common.Log.Info("topoOrder:")
+	}
+	n := len(paras)
+	visited := make([]bool, n)
+	order := make([]int, 0, n)
+	llyOrder := paras.makeOrder()
+
+	// bfr := map[uint64]int{}
+
+	// sortNode recursively sorts below node `idx` in the adjacency matrix.
+	var sortNode func(idx int)
+	sortNode = func(idx int) {
+		visited[idx] = true
 		for i := 0; i < n; i++ {
-			a := paras[i]
-			fmt.Printf("%4d: %s\n", i, show(a))
-			for j := 0; j < n; j++ {
-				if i == j {
-					continue
+			if !visited[i] {
+				// k := uint64(idx)*0x1000000 + uint64(i)
+				// bfr[k]++
+				if paras.before(llyOrder, idx, i) {
+					sortNode(i)
 				}
-				if !adj[i][j] && i != 16 {
-					continue
-				}
-				b := paras[j]
-				fmt.Printf("%8d: %t %10s %s\n", j, adj[i][j], reasons[i][j], show(b))
 			}
 		}
+		order = append(order, idx) // Should prepend but it's cheaper to append and reverse later.
 	}
-	return adj
+
+	for idx := 0; idx < n; idx++ {
+		if !visited[idx] {
+			sortNode(idx)
+		}
+	}
+
+	// var counts []uint64
+	// for k := range bfr {
+	// 	counts = append(counts, k)
+	// }
+	// common.Log.Notice("====================")
+	// common.Log.Notice("n=%d bfr=%d counts=%d", n, len(bfr), len(counts))
+	// sort.Slice(counts, func(i, j int) bool {
+	// 	ci, cj := counts[i], counts[j]
+	// 	ni, nj := bfr[ci], bfr[cj]
+	// 	if ni != nj {
+	// 		return ni > nj
+	// 	}
+	// 	return ci < cj
+	// })
+	// total := 0
+	// for _, cnt := range bfr {
+	// 	total += cnt
+	// 	if cnt > 1 {
+	// 		panic(cnt)
+	// 	}
+	// 	if total > n {
+	// 		panic(cnt)
+	// 	}
+	// }
+
+	// common.Log.Notice("====================")
+	// for i, k := range counts {
+	// 	k0 := k / 0x1000000
+	// 	k1 := k % 0x1000000
+	// 	cnt := bfr[k]
+	// 	if i < 10 {
+	// 		fmt.Printf("%4d: %4d %4d : %4d\n", i, k0, k1, cnt)
+	// 	}
+	// 	if cnt > 1 {
+	// 		panic(cnt)
+	// 	}
+	// }
+
+	return reversed(order)
 }
 
 // before defines an ordering over `paras`.
@@ -275,44 +310,86 @@ func (paras paraList) adjMatrix() [][]bool {
 //    there does not exist a line segment `c` whose y-coordinates are between `a` and `b` and whose
 //    range of x coordinates overlaps both `a` and `b`.
 // From Thomas M. Breuel "High Performance Document Layout Analysis"
-func (paras paraList) before(i, j int) (bool, string) {
+func (paras paraList) before(order []int, i, j int) bool {
 	a, b := paras[i], paras[j]
 	// Breuel's rule 1
 	if overlappedXPara(a, b) && a.Lly > b.Lly {
-		return true, "above"
+		return true
 	}
 
 	// Breuel's rule 2
 	if !(a.eBBox.Urx < b.eBBox.Llx) {
-		return false, "NOT left"
+		return false
 	}
-	for k, c := range paras {
+	lo := a.Lly
+	hi := b.Lly
+	if lo > hi {
+		hi, lo = lo, hi
+	}
+	llyOrder := paras.indexRange(order, lo, hi)
+	for _, k := range llyOrder {
+		c := paras[k]
 		if k == i || k == j {
 			continue
-		}
-		lo := a.Lly
-		hi := b.Lly
-		if lo > hi {
-			hi, lo = lo, hi
 		}
 		if !(lo < c.Lly && c.Lly < hi) {
 			continue
 		}
 		if overlappedXPara(a, c) && overlappedXPara(c, b) {
-			return false, fmt.Sprintf("Y intervening: %d: %s", k, c)
+			return false
 		}
 	}
-	return true, "TO LEFT"
+	return true
+}
+
+func (paras paraList) makeOrder() []int {
+	order := make([]int, len(paras))
+	for i := range paras {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		oi, oj := order[i], order[j]
+		return paras[oi].Lly < paras[oj].Lly
+	})
+
+	return order
+}
+
+func (paras paraList) indexRange(order []int, lo, hi float64) []int {
+	depth := func(i int) float64 { return paras[order[i]].Lly }
+	n := len(paras)
+	if hi < depth(0) {
+		return nil
+	}
+	if lo > depth(n-1) {
+		return nil
+	}
+
+	// i0 is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
+	i0 := sort.Search(n, func(i int) bool { return depth(i) >= lo })
+	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
+	if !(0 <= i0) {
+		panic(paras)
+	}
+
+	// i1 is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
+	i1 := sort.Search(n, func(i int) bool { return depth(i) > hi })
+	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
+	if !(0 <= i1) {
+		panic(paras)
+	}
+	return order[i0:i1]
 }
 
 // overlappedX returns true if `r0` and `r1` overlap on the x-axis. !@#$ There is another version
 // of this!
 func overlappedXPara(r0, r1 *textPara) bool {
-	return overlappedXRect(r0.eBBox, r1.eBBox)
+	return intersectsX(r0.eBBox, r1.eBBox)
 }
 
 // computeEBBoxes computes the eBBox fields in the elements of `paras`.
 func (paras paraList) computeEBBoxes() {
+	// fmt.Fprintf(os.Stderr, "\ncomputeEBBoxes: %d\n", len(paras))
 	if verbose {
 		common.Log.Info("computeEBBoxes:")
 	}
@@ -320,28 +397,34 @@ func (paras paraList) computeEBBoxes() {
 	for _, para := range paras {
 		para.eBBox = para.PdfRectangle
 	}
+	paraClearing := paras.findClearings()
 
 	for i, aa := range paras {
 		a := aa.eBBox
 		// [llx, urx] is the reading direction interval for which no paras overlap `a`.
+
 		llx := -1.0e9
 		urx := +1.0e9
-		for j, bb := range paras {
-			b := bb.eBBox
-			if i == j || !(a.Lly <= b.Ury && b.Lly <= a.Ury) {
-				continue
-			}
-			// y overlap
+		if false {
+			for j, bb := range paras {
+				b := bb.eBBox
+				if i == j || !(a.Lly <= b.Ury && b.Lly <= a.Ury) {
+					continue
+				}
+				// y overlap
 
-			// `b` to left of `a`. no x overlap.
-			if b.Urx < a.Llx {
-				llx = math.Max(llx, b.Urx)
+				// `b` to left of `a`. no x overlap.
+				if b.Urx < a.Llx {
+					llx = math.Max(llx, b.Urx)
+				}
+				// `b` to right of `a`. no x overlap.
+				if a.Urx < b.Llx {
+					urx = math.Min(urx, b.Llx)
+				}
 			}
-			// `b` to right of `a`. no x overlap.
-			if a.Urx < b.Llx {
-				urx = math.Min(urx, b.Llx)
-			}
-
+		} else {
+			clearing := paraClearing[aa]
+			llx, urx = clearing.llx, clearing.urx
 		}
 		// llx extends left from `a` and overlaps no other paras.
 		// urx extends right from `a` and overlaps no other paras.
@@ -356,13 +439,13 @@ func (paras paraList) computeEBBoxes() {
 			}
 
 			// If `b` is completely to right of `llx`, extend `a` left to `b`.
-			if llx <= b.Llx {
-				a.Llx = math.Min(a.Llx, b.Llx)
+			if llx <= b.Llx && b.Llx < a.Llx {
+				a.Llx = b.Llx
 			}
 
 			// If `b` is completely to left of `urx`, extend `a` right to `b`.
-			if b.Urx <= urx {
-				a.Urx = math.Max(a.Urx, b.Urx)
+			if b.Urx <= urx && a.Urx < b.Urx {
+				a.Urx = b.Urx
 			}
 		}
 		if verbose {
@@ -375,60 +458,6 @@ func (paras paraList) computeEBBoxes() {
 			para.PdfRectangle = para.eBBox
 		}
 	}
-}
-
-// printAdj prints `adj` to stdout.
-func printAdj(adj [][]bool) {
-	if !verbosePage {
-		return
-	}
-	common.Log.Info("printAdj:")
-	n := len(adj)
-	fmt.Printf("%3s:", "")
-	for x := 0; x < n; x++ {
-		fmt.Printf("%3d", x)
-	}
-	fmt.Println()
-	for y := 0; y < n; y++ {
-		fmt.Printf("%3d:", y)
-		for x := 0; x < n; x++ {
-			s := ""
-			if adj[y][x] {
-				s = "X"
-			}
-			fmt.Printf("%3s", s)
-		}
-		fmt.Println()
-	}
-}
-
-// topoOrder returns the ordering of the topological sort of the nodes with adjacency matrix `adj`.
-func topoOrder(adj [][]bool) []int {
-	if verbosePage {
-		common.Log.Info("topoOrder:")
-	}
-	n := len(adj)
-	visited := make([]bool, n)
-	var order []int
-
-	// sortNode recursively sorts below node `idx` in the adjacency matrix.
-	var sortNode func(idx int)
-	sortNode = func(idx int) {
-		visited[idx] = true
-		for i := 0; i < n; i++ {
-			if adj[idx][i] && !visited[i] {
-				sortNode(i)
-			}
-		}
-		order = append(order, idx) // Should prepend but it's cheaper to append and reverse later.
-	}
-
-	for idx := 0; idx < n; idx++ {
-		if !visited[idx] {
-			sortNode(idx)
-		}
-	}
-	return reversed(order)
 }
 
 // reversed return `order` reversed.
@@ -447,4 +476,68 @@ func (paras paraList) reorder(order []int) {
 		sorted[i] = paras[k]
 	}
 	copy(paras, sorted)
+}
+
+type event struct {
+	y     float64
+	enter bool
+	i     int
+}
+
+type clearing struct {
+	llx float64
+	urx float64
+}
+
+func (paras paraList) findClearings() map[*textPara]clearing {
+	events := make([]event, 2*len(paras))
+	for i, para := range paras {
+		events[2*i] = event{para.Ury, true, i}
+		events[2*i+1] = event{para.Lly, false, i}
+	}
+	sort.Slice(events, func(i, j int) bool {
+		ei, ej := events[i], events[j]
+		yi, yj := ei.y, ej.y
+		if yi != yj {
+			return yi > yj
+		}
+		if ei.enter != ej.enter {
+			return ei.enter
+		}
+		return i < j
+	})
+
+	overlaps := map[int]map[int]bool{}
+	inScan := map[int]bool{}
+	for _, e := range events {
+		if e.enter {
+			overlaps[e.i] = map[int]bool{}
+			for i := range inScan {
+				overlaps[e.i][i] = true
+			}
+			inScan[e.i] = true
+		} else {
+			delete(inScan, e.i)
+		}
+	}
+	paraNeighbors := map[*textPara]clearing{}
+	for i, olap := range overlaps {
+		aa := paras[i]
+		a := aa.eBBox
+		llx, urx := -1.0e9, +1.0e9
+		for j := range olap {
+			bb := paras[j]
+			b := bb.eBBox
+			if b.Urx < a.Llx && b.Urx > llx {
+				// `b` to left of `a`. no x overlap.
+				llx = b.Urx
+			} else if a.Urx < b.Llx && b.Llx < urx {
+				// `b` to right of `a`. no x overlap.
+				urx = b.Llx
+			}
+		}
+		paraNeighbors[aa] = clearing{llx: llx, urx: urx}
+	}
+
+	return paraNeighbors
 }

@@ -786,7 +786,6 @@ func (to *textObject) renderText(data []byte) error {
 	if verboseGeom {
 		common.Log.Info("renderText: %d codes=%+v texts=%q", len(charcodes), charcodes, texts)
 	}
-
 	common.Log.Trace("renderText: %d codes=%+v runes=%q", len(charcodes), charcodes, len(texts))
 
 	for i, text := range texts {
@@ -957,7 +956,7 @@ func (pt PageText) Tables() []TextTable {
 // maps substrings of the page text to locations on the PDF page.
 func (pt *PageText) computeViews() {
 	common.Log.Trace("ToTextLocation: %d elements", len(pt.marks))
-	paras := makeText2Page(pt.marks, pt.pageSize, 0)
+	paras := makeTextPage(pt.marks, pt.pageSize, 0)
 	b := new(bytes.Buffer)
 	paras.writeText(b)
 	pt.viewText = b.String()

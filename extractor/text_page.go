@@ -261,8 +261,9 @@ func (paras paraList) topoOrder() []int {
 	return reversed(order)
 }
 
+// before returns true if paras[`i`] comes before paras[`j`].
 // before defines an ordering over `paras`.
-// before returns true if `a` comes before `b`.
+// a = paras[i],  b= paras[j]
 // 1. Line segment `a` comes before line segment `b` if their ranges of x-coordinates overlap and if
 //    line segment `a` is above line segment `b` on the page.
 // 2. Line segment `a` comes before line segment `b` if `a` is entirely to the left of `b` and if

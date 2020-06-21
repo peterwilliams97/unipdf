@@ -35,7 +35,7 @@ const (
 	// All constants that end in R are relative to font size.
 
 	// Max difference in font sizes allowed within a word.
-	maxIntraWordFontTolR = 0.05
+	maxIntraWordFontTolR = 0.04
 
 	// Maximum gap between a word and a para in the depth direction for which we pull the word
 	// into the para, as a fraction of the font size.

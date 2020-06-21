@@ -22,7 +22,7 @@ var serial serialState
 type serialState struct {
 	mark   int // textMark
 	word   int // textWord
-	strata int // textStrata
+	strata int // wordBag
 	line   int // textLine
 	para   int // textPara
 }

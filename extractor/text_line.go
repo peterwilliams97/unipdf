@@ -27,7 +27,7 @@ type textLine struct {
 const minHyphenation = 4
 
 // newTextLine creates a line with font and bbox size of `w`, removes `w` from p.bins[bestWordDepthIdx] and adds it to the line
-func newTextLine(p *textStrata, depthIdx int) *textLine {
+func newTextLine(p *wordBag, depthIdx int) *textLine {
 	words := p.getStratum(depthIdx)
 	word := words[0]
 	line := textLine{
@@ -84,7 +84,7 @@ func (l *textLine) toTextMarks(offset *int) []TextMark {
 // moveWord removes `word` from p.bins[bestWordDepthIdx] and adds it to `l`.
 // `l.PdfRectangle` is increased to bound the new word
 // `l.fontsize` is the largest of the fontsizes of the words in line
-func (l *textLine) moveWord(s *textStrata, depthIdx int, word *textWord) {
+func (l *textLine) moveWord(s *wordBag, depthIdx int, word *textWord) {
 	l.appendWord(word)
 	s.removeWord(depthIdx, word)
 }

@@ -6,7 +6,7 @@
 /*
   Mods:
 	depth -> depth
-	textStrata -> stratum
+	wordBag -> stratum
 	textPara -> para
 */
 
@@ -106,20 +106,20 @@ func bboxDepth(b bounded) float64 {
 }
 
 // readingOverlapLeft returns true is the left of `word` is in within `para` or delta to its right
-func readingOverlapLeft(para *textStrata, word *textWord, delta float64) bool {
+func readingOverlapLeft(para *wordBag, word *textWord, delta float64) bool {
 	return para.Urx <= word.Llx && word.Llx < para.Urx+delta
 }
 
 // readingOverlapPlusGap returns true if `word` overlaps [para.Llx-maxIntraReadingGap, para.Urx+maxIntraReadingGap]
 // in the reading direction.
-func readingOverlapPlusGap(para *textStrata, word *textWord, maxIntraReadingGap float64) bool {
+func readingOverlapPlusGap(para *wordBag, word *textWord, maxIntraReadingGap float64) bool {
 	return word.Llx < para.Urx+maxIntraReadingGap && para.Llx-maxIntraReadingGap < word.Urx
 }
 
-// partial return 'overlap`(*textStrata, *textWord, `param`) bool.
-func partial(overlap func(*textStrata, *textWord, float64) bool,
-	param float64) func(*textStrata, *textWord) bool {
-	return func(para *textStrata, word *textWord) bool {
+// partial return 'overlap`(*wordBag, *textWord, `param`) bool.
+func partial(overlap func(*wordBag, *textWord, float64) bool,
+	param float64) func(*wordBag, *textWord) bool {
+	return func(para *wordBag, word *textWord) bool {
 		return overlap(para, word, param)
 	}
 }

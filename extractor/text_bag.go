@@ -15,9 +15,9 @@ import (
 	"github.com/unidoc/unipdf/v3/model"
 )
 
-// textStrata is a list of word bins arranged by their depth on a page.
+// wordBag is a list of word bins arranged by their depth on a page.
 // The words in each bin are sorted in reading order.
-type textStrata struct {
+type wordBag struct {
 	serial             int                 // Sequence number for debugging.
 	model.PdfRectangle                     // Bounding box (union of words' in bins bounding boxes).
 	bins               map[int][]*textWord // bins[n] = w: n*depthBinPoints <= w.depth < (n+1)*depthBinPoints
@@ -25,10 +25,10 @@ type textStrata struct {
 	fontsize           float64
 }
 
-// makeTextStrata builds a textStrata from `words` by putting the words into the appropriate
+// makeWordBag builds a wordBag from `words` by putting the words into the appropriate
 // depth bins.
-func makeTextStrata(words []*textWord, pageHeight float64) *textStrata {
-	s := newTextStrata(pageHeight)
+func makeWordBag(words []*textWord, pageHeight float64) *wordBag {
+	s := newWordBag(pageHeight)
 	for _, w := range words {
 		depthIdx := depthIndex(w.depth)
 		s.bins[depthIdx] = append(s.bins[depthIdx], w)
@@ -37,9 +37,9 @@ func makeTextStrata(words []*textWord, pageHeight float64) *textStrata {
 	return s
 }
 
-// newTextStrata returns an empty textStrata with page height `pageHeight`.
-func newTextStrata(pageHeight float64) *textStrata {
-	strata := textStrata{
+// newWordBag returns an empty wordBag with page height `pageHeight`.
+func newWordBag(pageHeight float64) *wordBag {
+	strata := wordBag{
 		serial:       serial.strata,
 		bins:         map[int][]*textWord{},
 		PdfRectangle: model.PdfRectangle{Urx: -1.0, Ury: -1.0},
@@ -50,7 +50,7 @@ func newTextStrata(pageHeight float64) *textStrata {
 }
 
 // String returns a description of `s`.
-func (s *textStrata) String() string {
+func (s *wordBag) String() string {
 	var texts []string
 	for _, depthIdx := range s.depthIndexes() {
 		words, _ := s.bins[depthIdx]
@@ -63,19 +63,19 @@ func (s *textStrata) String() string {
 }
 
 // sort sorts the words in each bin in `s` in the reading direction.
-func (s *textStrata) sort() {
+func (s *wordBag) sort() {
 	for _, bin := range s.bins {
 		sort.Slice(bin, func(i, j int) bool { return diffReading(bin[i], bin[j]) < 0 })
 	}
 }
 
 // minDepth returns the minimum depth that words in `s` touch.
-func (s *textStrata) minDepth() float64 {
+func (s *wordBag) minDepth() float64 {
 	return s.pageHeight - (s.Ury - s.fontsize)
 }
 
 // maxDepth returns the maximum depth that words in `s` touch.
-func (s *textStrata) maxDepth() float64 {
+func (s *wordBag) maxDepth() float64 {
 	return s.pageHeight - s.Lly
 }
 
@@ -93,7 +93,7 @@ func depthIndex(depth float64) int {
 }
 
 // depthIndexes returns the sorted keys of s.bins.
-func (s *textStrata) depthIndexes() []int {
+func (s *wordBag) depthIndexes() []int {
 	if len(s.bins) == 0 {
 		return nil
 	}
@@ -114,8 +114,8 @@ func (s *textStrata) depthIndexes() []int {
 // and applies `moveWord`(depthIdx, s,para w) to them.
 // If `detectOnly` is true, moveWord is not applied.
 // If `freezeDepth` is true, minDepth and maxDepth are not updated in scan as words are added.
-func (s *textStrata) scanBand(title string, para *textStrata,
-	readingOverlap func(para *textStrata, word *textWord) bool,
+func (s *wordBag) scanBand(title string, para *wordBag,
+	readingOverlap func(para *wordBag, word *textWord) bool,
 	minDepth, maxDepth, fontTol float64,
 	detectOnly, freezeDepth bool) int {
 	fontsize := para.fontsize
@@ -182,7 +182,7 @@ func (s *textStrata) scanBand(title string, para *textStrata,
 	return n
 }
 
-func (para *textStrata) text() string {
+func (para *wordBag) text() string {
 	words := para.allWords()
 	texts := make([]string, len(words))
 	for i, w := range words {
@@ -192,7 +192,7 @@ func (para *textStrata) text() string {
 }
 
 // stratumBand returns the words in s.bins[depthIdx] w: minDepth <= w.depth <= maxDepth.
-func (s *textStrata) stratumBand(depthIdx int, minDepth, maxDepth float64) []*textWord {
+func (s *wordBag) stratumBand(depthIdx int, minDepth, maxDepth float64) []*textWord {
 	if len(s.bins) == 0 {
 		return nil
 	}
@@ -206,7 +206,7 @@ func (s *textStrata) stratumBand(depthIdx int, minDepth, maxDepth float64) []*te
 }
 
 // depthBand returns the indexes of the bins with depth: `minDepth` <= depth <= `maxDepth`.
-func (s *textStrata) depthBand(minDepth, maxDepth float64) []int {
+func (s *wordBag) depthBand(minDepth, maxDepth float64) []int {
 	if len(s.bins) == 0 {
 		return nil
 	}
@@ -215,7 +215,7 @@ func (s *textStrata) depthBand(minDepth, maxDepth float64) []int {
 }
 
 // depthRange returns the sorted keys of s.bins for depths indexes [`minDepth`,`maxDepth`).
-func (s *textStrata) depthRange(minDepthIdx, maxDepthIdx int) []int {
+func (s *wordBag) depthRange(minDepthIdx, maxDepthIdx int) []int {
 	indexes := s.depthIndexes()
 	var rangeIndexes []int
 	for _, depthIdx := range indexes {
@@ -229,7 +229,7 @@ func (s *textStrata) depthRange(minDepthIdx, maxDepthIdx int) []int {
 // firstReadingIndex returns the index of the depth bin that starts with that word with the smallest
 // reading direction value in the depth region `minDepthIndex` < depth <= minDepthIndex+ 4*fontsize
 // This avoids choosing a bin that starts with a superscript word.
-func (s *textStrata) firstReadingIndex(minDepthIdx int) int {
+func (s *wordBag) firstReadingIndex(minDepthIdx int) int {
 	firstReadingIdx := minDepthIdx
 	firstReadingWords := s.getStratum(firstReadingIdx)
 	fontsize := firstReadingWords[0].fontsize
@@ -245,7 +245,7 @@ func (s *textStrata) firstReadingIndex(minDepthIdx int) int {
 }
 
 // getDepthIdx returns the index into `s.bins` for depth axis value `depth`.
-func (s *textStrata) getDepthIdx(depth float64) int {
+func (s *wordBag) getDepthIdx(depth float64) int {
 	if len(s.bins) == 0 {
 		panic("NOT ALLOWED")
 	}
@@ -262,7 +262,7 @@ func (s *textStrata) getDepthIdx(depth float64) int {
 
 // empty returns true if the depth bin with index `depthIdx` is empty.
 // NOTE: We delete bins as soon as they become empty so we just have to check for the bin's existence.
-func (s *textStrata) empty(depthIdx int) bool {
+func (s *wordBag) empty(depthIdx int) bool {
 	_, ok := s.bins[depthIdx]
 	return !ok
 }
@@ -271,7 +271,7 @@ func (s *textStrata) empty(depthIdx int) bool {
 // getStratum is guaranteed to return a non-nil value. It must be called with a valid depth index.
 // NOTE: We need to return a copy because remove() and other functions manipulate the array
 // underlying the slice.
-func (s *textStrata) getStratum(depthIdx int) []*textWord {
+func (s *wordBag) getStratum(depthIdx int) []*textWord {
 	words := s.bins[depthIdx]
 	if words == nil {
 		panic("NOT ALLOWED")
@@ -282,7 +282,7 @@ func (s *textStrata) getStratum(depthIdx int) []*textWord {
 }
 
 // moveWord moves `word` from 'page'[`depthIdx`] to 'para'[`depthIdx`].
-func moveWord(depthIdx int, page, para *textStrata, word *textWord) {
+func moveWord(depthIdx int, page, para *wordBag, word *textWord) {
 	if para.Llx > para.Urx {
 		para.PdfRectangle = word.PdfRectangle
 	} else {
@@ -295,7 +295,7 @@ func moveWord(depthIdx int, page, para *textStrata, word *textWord) {
 	page.removeWord(depthIdx, word)
 }
 
-func (s *textStrata) allWords() []*textWord {
+func (s *wordBag) allWords() []*textWord {
 	var wordList []*textWord
 	for _, words := range s.bins {
 		wordList = append(wordList, words...)
@@ -303,7 +303,7 @@ func (s *textStrata) allWords() []*textWord {
 	return wordList
 }
 
-func (s *textStrata) isHomogenous(w *textWord) bool {
+func (s *wordBag) isHomogenous(w *textWord) bool {
 	words := s.allWords()
 	words = append(words, w)
 	if len(words) == 0 {
@@ -326,10 +326,10 @@ func (s *textStrata) isHomogenous(w *textWord) bool {
 }
 
 // removeWord removes `word`from `s`.bins[`depthIdx`].
-// NOTE: We delete bins as soon as they become empty to save code that calls other textStrata
+// NOTE: We delete bins as soon as they become empty to save code that calls other wordBag
 // functions from having to check for empty bins.
 // !@#$ Find a more efficient way of doing this.
-func (s *textStrata) removeWord(depthIdx int, word *textWord) {
+func (s *wordBag) removeWord(depthIdx int, word *textWord) {
 	words := removeWord(s.getStratum(depthIdx), word)
 	if len(words) == 0 {
 		delete(s.bins, depthIdx)
@@ -339,7 +339,7 @@ func (s *textStrata) removeWord(depthIdx int, word *textWord) {
 }
 
 // mergeStratas merges paras less than a character width to the left of a stata;
-func mergeStratas(paras []*textStrata) []*textStrata {
+func mergeStratas(paras []*wordBag) []*wordBag {
 	if len(paras) <= 1 {
 		return paras
 	}
@@ -358,7 +358,7 @@ func mergeStratas(paras []*textStrata) []*textStrata {
 		}
 		return i < j
 	})
-	var merged []*textStrata
+	var merged []*wordBag
 	absorbed := map[int]struct{}{}
 	for i0 := 0; i0 < len(paras); i0++ {
 		if _, ok := absorbed[i0]; ok {
@@ -389,7 +389,7 @@ func mergeStratas(paras []*textStrata) []*textStrata {
 }
 
 // absorb combines `word` into `w`.
-func (s *textStrata) absorb(strata *textStrata) {
+func (s *wordBag) absorb(strata *wordBag) {
 	var absorbed []string
 	for depthIdx, words := range strata.bins {
 		for _, word := range words {

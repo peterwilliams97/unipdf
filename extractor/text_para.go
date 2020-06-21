@@ -208,7 +208,7 @@ func (p *textPara) fontsize() float64 {
 
 // composePara builds a textPara from the words in `strata`.
 // It does this by arranging the words in `strata` into lines.
-func (strata *textStrata) composePara() *textPara {
+func (strata *wordBag) composePara() *textPara {
 	// Sort the words in `para`'s bins in the reading direction.
 	strata.sort()
 	para := newTextPara(strata.PdfRectangle)

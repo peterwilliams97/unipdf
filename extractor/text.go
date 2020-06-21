@@ -434,7 +434,6 @@ func (to *textObject) setTextMatrix(f []float64) {
 	a, b, c, d, tx, ty := f[0], f[1], f[2], f[3], f[4], f[5]
 	to.tm = transform.NewMatrix(a, b, c, d, tx, ty)
 	to.tlm = to.tm
-	to.logCursor()
 }
 
 // showText "Tj". Show a text string.
@@ -459,7 +458,6 @@ func (to *textObject) showTextAdjusted(args *core.PdfObjectArray) error {
 			}
 			td := translationMatrix(transform.Point{X: dx, Y: dy})
 			to.tm.Concat(td)
-			to.logCursor()
 		case *core.PdfObjectString:
 			charcodes, ok := core.GetStringBytes(o)
 			if !ok {
@@ -729,23 +727,6 @@ func (to *textObject) reset() {
 	to.tm = transform.IdentityMatrix()
 	to.tlm = transform.IdentityMatrix()
 	to.marks = nil
-	to.logCursor()
-}
-
-// logCursor is for debugging only. Remove !@#$
-func (to *textObject) logCursor() {
-	return
-	state := to.state
-	tfs := state.tfs
-	th := state.th / 100.0
-	stateMatrix := transform.NewMatrix(
-		tfs*th, 0,
-		0, tfs,
-		0, state.trise)
-	trm := to.gs.CTM.Mult(to.tm).Mult(stateMatrix)
-	cur := translation(trm)
-	common.Log.Info("showTrm: %s cur=%.2f tm=%.2f CTM=%.2f",
-		fileLine(1, false), cur, to.tm, to.gs.CTM)
 }
 
 // renderText processes and renders byte array `data` for extraction purposes.
@@ -868,9 +849,6 @@ func (to *textObject) renderText(data []byte) error {
 
 		// update the text matrix by the displacement of the text location.
 		to.tm.Concat(td)
-		if i != len(texts)-1 {
-			to.logCursor()
-		}
 	}
 
 	return nil
@@ -1131,6 +1109,8 @@ var spaceMark = TextMark{
 
 // TextTable represents a table.
 // Cells are ordered top-to-bottom, left-to-right.
+// Cells[y] is the (0-offset) y'th row in the table.
+// Cells[y][x] is the (0-offset) x'th column in the table.
 type TextTable struct {
 	W, H  int
 	Cells [][]string

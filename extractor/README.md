@@ -1,10 +1,12 @@
 TEXT EXTRACTION CODE
 ====================
+
 The code is currently split accross the `text_*.go` files to make it easier to navigate. Once you
 understand the code you may wish to recombine this in the orginal `text.go`.
 
 BASIC IDEAS
 -----------
+
 There are two [directions](https://www.w3.org/International/questions/qa-scripts.en#directions)s\.
 
 - *reading*

@@ -118,7 +118,7 @@ func (t *textTable) growTable() {
 		}
 	}
 
-	for i := 0; ; i++ {
+	for {
 		changed := false
 		down := t.getDown()
 		right := t.getRight()
@@ -141,10 +141,6 @@ func (t *textTable) growTable() {
 		}
 		if !changed {
 			break
-		}
-		if i > 10000 || t.w > 100 || t.h > 200 {
-			err := fmt.Errorf("i=%d t=%s", i, t.String())
-			panic(err)
 		}
 	}
 }

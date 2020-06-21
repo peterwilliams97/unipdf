@@ -37,9 +37,15 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	paras.log("unsorted")
 	// paras.computeEBBoxes()
 
-	if useTables {
+	n0 := len(paras)
+	if useTables && len(paras) >= 4 {
 		paras = paras.extractTables()
+		if len(paras) == 0 {
+			common.Log.Info("\n\tPARAS: %3d -> %3d", n0, len(paras))
+			panic("np paras")
+		}
 	}
+
 	// paras.log("tables extracted")
 	paras.computeEBBoxes()
 	paras.log("EBBoxes 2")
@@ -390,61 +396,6 @@ func (paras paraList) computeEBBoxes() {
 			para.PdfRectangle = para.eBBox
 		}
 	}
-}
-
-type event struct {
-	y     float64
-	enter bool
-	i     int
-}
-
-// yNeighbours returns a map {para: indexes of paras that y overap para}
-func (paras paraList) yNeighbours() map[*textPara][]int {
-	events := make([]event, 2*len(paras))
-	for i, para := range paras {
-		events[2*i] = event{para.Ury, true, i}
-		events[2*i+1] = event{para.Lly, false, i}
-	}
-	sort.Slice(events, func(i, j int) bool {
-		ei, ej := events[i], events[j]
-		yi, yj := ei.y, ej.y
-		if yi != yj {
-			return yi > yj
-		}
-		if ei.enter != ej.enter {
-			return ei.enter
-		}
-		return i < j
-	})
-
-	overlaps := map[int]map[int]bool{}
-	olap := map[int]bool{}
-	for _, e := range events {
-		if e.enter {
-			overlaps[e.i] = map[int]bool{}
-			for i := range olap {
-				if i != e.i {
-					overlaps[e.i][i] = true
-					overlaps[i][e.i] = true
-				}
-			}
-			olap[e.i] = true
-		} else {
-			delete(olap, e.i)
-		}
-	}
-	paraNeighbors := map[*textPara][]int{}
-	for i, olap := range overlaps {
-		para := paras[i]
-		neighbours := make([]int, len(olap))
-		k := 0
-		for j := range olap {
-			neighbours[k] = j
-			k++
-		}
-		paraNeighbors[para] = neighbours
-	}
-	return paraNeighbors
 }
 
 // reversed return `order` reversed.

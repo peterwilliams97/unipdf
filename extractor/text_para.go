@@ -30,6 +30,9 @@ type textPara struct {
 	eBBox              model.PdfRectangle // Extended bounding box needed to compute reading order.
 	lines              []*textLine        // Paragraph text gets broken into lines.
 	table              *textTable
+	right              *textPara
+	below              *textPara
+	isCell             bool
 }
 
 // newTextPara returns a textPara with the same bouding rectangle as `strata`.

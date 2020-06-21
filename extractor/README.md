@@ -113,3 +113,7 @@ Computation time
       Find columns that start at row -> table candiates
    Sort table candidates by w x h descending
 4. Test each candidate O(N^4)
+
+
+TODO
+Breuel O(n) before map[from,to]bool

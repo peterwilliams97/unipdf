@@ -72,14 +72,18 @@ func (paras paraList) findTables() []*textTable {
 	return tables
 }
 
-// Build a table fragment of 4 cells
-//   0 1
-//   2 3
+// Attempr to build the smallest possible table fragment of 2 x 2 cells.
+// If it can be built then return it. Otherwise return nil.
+// The smallest possible table is
+//   a b
+//   c d
 // where
-//   0 is `para1`
-//   1 is on the right of 0 and overlaps with 0 in y axis
-//   2 is under 0 and overlaps with 0 in x axis
-//   3 is under 1 and on the right of 1 and closest to 0
+//   a is `para`
+//   b is immediately to the right of a and overlaps it in the y axis
+//   c is immediately below a and ooverlaps it in the x axis
+//   d is immediately to the right of c and overlaps it in the x axis and
+//        immediately below b and ooverlaps it in the y axis
+//   None of a, b, c or d are cells in existing tables.
 func (para *textPara) isAtom() *textTable {
 	a := para
 	b := para.right
@@ -87,14 +91,15 @@ func (para *textPara) isAtom() *textTable {
 	if b != nil && !b.isCell && c != nil && !c.isCell {
 		d := b.below
 		if d != nil && !d.isCell && d == c.right {
-			return newTable(a, b, c, d, 2, 2)
+			return newTableAtom(a, b, c, d)
 		}
 	}
 	return nil
 }
 
-func newTable(a, b, c, d *textPara, w, h int) *textTable {
-	t := &textTable{w: w, h: h, cells: map[uint64]*textPara{}}
+// newTable returns a table containg the a, b, c, d elements from isAtom().
+func newTableAtom(a, b, c, d *textPara) *textTable {
+	t := &textTable{w: 2, h: 2, cells: map[uint64]*textPara{}}
 	t.put(0, 0, a)
 	t.put(1, 0, b)
 	t.put(0, 1, c)

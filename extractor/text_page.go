@@ -145,17 +145,15 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 
 				// If there are words to the left of `paraWords`, add them.
 				// We need to limit the number of words.
-				otherTol := minInterReadingFontTol
-				// otherTol = 0.7
 				n := pageWords.scanBand("", paraWords, partial(readingOverlapLeft, minInterReadingGap),
 					paraWords.minDepth(), paraWords.maxDepth(),
-					otherTol, true, false)
+					minInterReadingFontTol, true, false)
 				if n > 0 {
 					r := (paraWords.maxDepth() - paraWords.minDepth()) / paraWords.fontsize
 					if (n > 1 && float64(n) > 0.3*r) || n <= 10 {
 						if pageWords.scanBand("other", paraWords, partial(readingOverlapLeft, minInterReadingGap),
 							paraWords.minDepth(), paraWords.maxDepth(),
-							otherTol, false, true) > 0 {
+							minInterReadingFontTol, false, true) > 0 {
 							changed = true
 						}
 					}
@@ -348,8 +346,10 @@ func (paras paraList) llyRange(ordering []int, lo, hi float64) []int {
 }
 
 // computeEBBoxes computes the eBBox fields in the elements of `paras`.
+// The EBBoxs are the regions around the paras that don't intersect paras in other columns.
+// This is needed for sortReadingOrder to work with skinny paras in a column of fat paras. The
+// sorting assumes the skinny para bounding box is as wide as the fat para bounding boxes.
 func (paras paraList) computeEBBoxes() {
-	// fmt.Fprintf(os.Stderr, "\ncomputeEBBoxes: %d\n", len(paras))
 	if verbose {
 		common.Log.Info("computeEBBoxes:")
 	}

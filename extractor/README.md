@@ -127,3 +127,4 @@ check for constant values
 check for names
     hyphenated
     spaceAfter
+    word0 para1 before etc

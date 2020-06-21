@@ -28,10 +28,12 @@ type textPara struct {
 	model.PdfRectangle                    // Bounding box.
 	eBBox              model.PdfRectangle // Extended bounding box needed to compute reading order.
 	lines              []*textLine        // Paragraph text gets broken into lines.
-	table              *textTable
-	right              *textPara
-	below              *textPara
-	isCell             bool
+	table              *textTable         // A table in which the cells which textParas.
+	isCell             bool               // Is this para a cell in a textTable>
+	// The unique highest para completely below this that overlaps it in the y-direction, if one exists.
+	right *textPara
+	// The unique highest para completely below `this that overlaps it in the x-direction, if one exists.
+	below *textPara
 }
 
 // newTextPara returns a textPara with bounding rectangle `bbox`.

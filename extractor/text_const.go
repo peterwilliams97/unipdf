@@ -51,7 +51,7 @@ const (
 
 	// Minimum spacing between paras in the reading direction.
 	minInterReadingGapR = 1.0
-	// Max diffrence in font size for word and para for the above case
+	// Max difference in font size for word and para for the above case
 	minInterReadingFontTol = 0.1
 
 	// Maximum inter-word spacing.
@@ -61,7 +61,7 @@ const (
 	maxIntraLineOverlapR = 0.46
 
 	// Maximum spacing between characters within a line.
-	maxIntraLineGapR = 0.03
+	maxIntraLineGapR = 0.02
 
 	// minimum number of cells in a textTable
 	minTableParas = 6

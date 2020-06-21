@@ -21,12 +21,11 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 
 	// Break the marks into words
 	words := makeTextWords(marks, pageSize)
-	a := makeAether(words, pageSize.Ury)
 
 	// Divide the words into depth bins with each the contents of each bin sorted by reading direction
-	page := a.makeTextStrata(words)
+	page := makeTextStrata(words, pageSize.Ury)
 	// Divide the page into rectangular regions for each paragraph and creata a textStrata for each one.
-	paraStratas := a.dividePage(page, pageSize.Ury)
+	paraStratas := dividePage(page, pageSize.Ury)
 	paraStratas = mergeStratas(paraStratas)
 	// Arrange the contents of each para into lines
 	paras := make(paraList, len(paraStratas))
@@ -58,7 +57,7 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 }
 
 // dividePage divides page builds a list of paragraph textStrata from `page`, the page textStrata.
-func (a *aether) dividePage(page *textStrata, pageHeight float64) []*textStrata {
+func dividePage(page *textStrata, pageHeight float64) []*textStrata {
 	var paraStratas []*textStrata
 
 	// We move words from `page` to paras until there no words left in page.
@@ -79,7 +78,7 @@ func (a *aether) dividePage(page *textStrata, pageHeight float64) []*textStrata 
 			// Start a new paragraph region `para`.
 			// Build `para` out from the left-most (lowest in reading direction) word `words`[0],
 			// in the bins in and below `depthIdx`.
-			para := a.newTextStrata()
+			para := newTextStrata(pageHeight)
 
 			// words[0] is the leftmost word from the bins in and a few lines below `depthIdx`. We
 			// seed 'para` with this word.

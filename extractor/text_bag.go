@@ -15,62 +15,6 @@ import (
 	"github.com/unidoc/unipdf/v3/model"
 )
 
-type aether struct {
-	// bins               map[int][]*textWord // bins[n] = w: n*depthBinPoints <= w.depth < (n+1)*depthBinPoints
-	pageHeight float64
-	words      []*textWord
-	order      []int
-}
-
-func makeAether(words []*textWord, pageHeight float64) *aether {
-	order := make([]int, len(words))
-	for i := range words {
-		order[i] = i
-	}
-	sort.SliceStable(order, func(i, j int) bool {
-		oi, oj := order[i], order[j]
-		return words[oi].depth < words[oj].depth
-	})
-	// minDepth := words[0].depth
-	// maxDepth := words[0].depth
-	// for _, w := range words[1:] {
-	// 	minDepth = math.Min(minDepth, w.depth)
-	// 	maxDepth = math.Max(maxDepth, w.depth)
-	// }
-	// n := int(math.Ceil((maxDepth - minDepth) / depthBinPoints))
-	// depths := make([]float64, n)
-	// for i := range depths {
-	// 	depths[i] = minDepth + float64(i)*depthBinPoints
-	// }
-	return &aether{pageHeight: pageHeight, order: order, words: words}
-}
-
-func (a aether) indexRange(lo, hi float64) []int {
-	depth := func(i int) float64 { return a.words[a.order[i]].depth }
-	n := len(a.order)
-	if hi < depth(0) {
-		return nil
-	}
-	if lo > depth(n-1) {
-		return nil
-	}
-
-	// i0 is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
-	i0 := sort.Search(n, func(i int) bool { return depth(i) >= lo })
-	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
-	if !(0 <= i0) {
-		panic(a)
-	}
-
-	// i1 is the lowest i: val(i) > z so i-1 is the greatest i: val(i) <= z
-	i1 := sort.Search(n, func(i int) bool { return depth(i) > hi })
-	// fmt.Printf("##le %s %.1f >= %.1f => i=%d\n", k, val(i), z, i)
-	if !(0 <= i1) {
-		panic(a)
-	}
-	return a.order[i0:i1]
-}
-
 // textStrata is a list of word bins arranged by their depth on a page.
 // The words in each bin are sorted in reading order.
 type textStrata struct {
@@ -79,13 +23,12 @@ type textStrata struct {
 	bins               map[int][]*textWord // bins[n] = w: n*depthBinPoints <= w.depth < (n+1)*depthBinPoints
 	pageHeight         float64
 	fontsize           float64
-	*aether
 }
 
 // makeTextStrata builds a textStrata from `words` by putting the words into the appropriate
 // depth bins.
-func (a *aether) makeTextStrata(words []*textWord) *textStrata {
-	s := a.newTextStrata()
+func makeTextStrata(words []*textWord, pageHeight float64) *textStrata {
+	s := newTextStrata(pageHeight)
 	for _, w := range words {
 		depthIdx := depthIndex(w.depth)
 		s.bins[depthIdx] = append(s.bins[depthIdx], w)
@@ -95,13 +38,12 @@ func (a *aether) makeTextStrata(words []*textWord) *textStrata {
 }
 
 // newTextStrata returns an empty textStrata with page height `pageHeight`.
-func (a *aether) newTextStrata() *textStrata {
+func newTextStrata(pageHeight float64) *textStrata {
 	strata := textStrata{
 		serial:       serial.strata,
 		bins:         map[int][]*textWord{},
 		PdfRectangle: model.PdfRectangle{Urx: -1.0, Ury: -1.0},
-		pageHeight:   a.pageHeight,
-		aether:       a,
+		pageHeight:   pageHeight,
 	}
 	serial.strata++
 	return &strata
@@ -116,7 +58,6 @@ func (s *textStrata) String() string {
 			texts = append(texts, w.text())
 		}
 	}
-	// return fmt.Sprintf("serial=%d %d %q", s.serial, )
 	return fmt.Sprintf("serial=%d %.2f fontsize=%.2f %d %q",
 		s.serial, s.PdfRectangle, s.fontsize, len(texts), texts)
 }
@@ -270,24 +211,11 @@ func (s *textStrata) depthBand(minDepth, maxDepth float64) []int {
 		return nil
 	}
 
-	if false { //  CAND  Messes up paragraphs
-		indexes := s.aether.indexRange(minDepth, maxDepth)
-		i := 0
-		for _, idx := range indexes {
-			if _, ok := s.bins[idx]; ok {
-				indexes[i] = idx
-				i++
-			}
-		}
-		return indexes[:i]
-	}
-
 	return s.depthRange(s.getDepthIdx(minDepth), s.getDepthIdx(maxDepth))
 }
 
 // depthRange returns the sorted keys of s.bins for depths indexes [`minDepth`,`maxDepth`).
 func (s *textStrata) depthRange(minDepthIdx, maxDepthIdx int) []int {
-	// return s.aether.indexRange(minDepthIdx, maxDepthIdxi)
 	indexes := s.depthIndexes()
 	var rangeIndexes []int
 	for _, depthIdx := range indexes {

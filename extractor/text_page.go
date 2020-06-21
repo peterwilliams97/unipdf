@@ -106,7 +106,7 @@ func (a *aether) dividePage(page *textStrata, pageHeight float64) []*textStrata 
 					common.Log.Info("para depth %.2f - %.2f maxIntraDepthGap=%.2f ",
 						para.minDepth(), para.maxDepth(), maxIntraDepthGap)
 				}
-				if page.scanBand("veritcal", para, partial(readingOverlapPlusGap, 0),
+				if page.scanBand("vertical", para, partial(readingOverlapPlusGap, 0),
 					para.minDepth()-maxIntraDepthGap, para.maxDepth()+maxIntraDepthGap,
 					maxIntraDepthFontTolR, false, false) > 0 {
 					changed = true

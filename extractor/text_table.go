@@ -209,11 +209,11 @@ func (t *textTable) getRight() paraList {
 
 func (paras paraList) applyTables(tables []*textTable) paraList {
 	// if len(tables) == 0 {panic("no tables")}
-	consumed := map[*textPara]bool{}
+	consumed := map[*textPara]struct{}{}
 	var tabled paraList
 	for _, table := range tables {
 		for _, para := range table.cells {
-			consumed[para] = true
+			consumed[para] = struct{}{}
 		}
 		tabled = append(tabled, table.newTablePara())
 	}

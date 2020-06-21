@@ -191,18 +191,18 @@ func (paras paraList) eventNeighbours(events []event) map[*textPara][]int {
 		return i < j
 	})
 
-	overlaps := map[int]map[int]bool{}
-	olap := map[int]bool{}
+	overlaps := map[int]map[int]struct{}{}
+	olap := map[int]struct{}{}
 	for k, e := range events {
 		if e.enter {
-			overlaps[e.i] = map[int]bool{}
+			overlaps[e.i] = map[int]struct{}{}
 			for i := range olap {
 				if i != e.i {
-					overlaps[e.i][i] = true
-					overlaps[i][e.i] = true
+					overlaps[e.i][i] = struct{}{}
+					overlaps[i][e.i] = struct{}{}
 				}
 			}
-			olap[e.i] = true
+			olap[e.i] = struct{}{}
 		} else {
 			delete(olap, e.i)
 		}

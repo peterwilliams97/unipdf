@@ -171,8 +171,8 @@ func (s *textStrata) depthIndexes() []int {
 //    `readingOverlap`(`para`, w) &&  // in the reading directon
 //     math.Abs(w.fontsize-fontsize) > `fontTol`*fontsize // font size tolerance
 // and applies `moveWord`(depthIdx, s,para w) to them.
-// If `detectOnly` is true, don't appy moveWord.
-// If `freezeDepth` is true, don't update minDepth and maxDepth in scan as words are added.
+// If `detectOnly` is true, moveWord is not applied.
+// If `freezeDepth` is true, minDepth and maxDepth are not updated in scan as words are added.
 func (s *textStrata) scanBand(title string, para *textStrata,
 	readingOverlap func(para *textStrata, word *textWord) bool,
 	minDepth, maxDepth, fontTol float64,
@@ -187,7 +187,6 @@ func (s *textStrata) scanBand(title string, para *textStrata,
 			if !(minDepth-lineDepth <= word.depth && word.depth <= maxDepth+lineDepth) {
 				continue
 			}
-
 			if !readingOverlap(para, word) {
 				continue
 			}
@@ -229,7 +228,6 @@ func (s *textStrata) scanBand(title string, para *textStrata,
 				minDepth, maxDepth,
 				para.PdfRectangle, para.fontsize, truncate(para.text(), 20))
 			for i, word := range newWords {
-				// fmt.Printf("%4d: %s\n", i, word)
 				fmt.Printf("  %q", word.text())
 				if i >= 5 {
 					break
@@ -433,7 +431,7 @@ func mergeStratas(paras []*textStrata) []*textStrata {
 		return i < j
 	})
 	var merged []*textStrata
-	absorbed := map[int]bool{}
+	absorbed := map[int]struct{}{}
 	for i0 := 0; i0 < len(paras); i0++ {
 		if _, ok := absorbed[i0]; ok {
 			continue
@@ -448,7 +446,7 @@ func mergeStratas(paras []*textStrata) []*textStrata {
 			r.Llx -= para0.fontsize * 0.99
 			if rectContainsRect(r, para1.PdfRectangle) {
 				para0.absorb(para1)
-				absorbed[i1] = true
+				absorbed[i1] = struct{}{}
 			}
 		}
 		merged = append(merged, para0)

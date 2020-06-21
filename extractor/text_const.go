@@ -47,7 +47,7 @@ const (
 	// into the para.
 	maxIntraReadingGapR = 0.4
 	// Max diffrence in font size for word and para for the above case
-	maxIntraReadingFontTol = 0.6
+	maxIntraReadingFontTol = 0.7
 
 	// Minimum spacing between paras in the reading direction.
 	minInterReadingGapR = 1.0

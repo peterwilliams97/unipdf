@@ -24,7 +24,7 @@ import (
 
 // maxFormStack is the maximum form stack recursion depth. It has to be low enough to avoid a stack
 // overflow and high enough to accomodate customers' PDFs
-const maxFormStack = 10
+const maxFormStack = 20
 
 // ExtractText processes and extracts all text data in content streams and returns as a string.
 // It takes into account character encodings in the PDF file, which are decoded by

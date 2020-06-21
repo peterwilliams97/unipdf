@@ -177,6 +177,7 @@ func (w *textWord) toTextMarks(offset *int) []TextMark {
 }
 
 // removeWord returns `words` with `word` removed.
+// Caller must check that `words` contains `word`,
 // TODO(peterwilliams97): Optimize
 func removeWord(words []*textWord, word *textWord) []*textWord {
 	for i, w := range words {
@@ -184,7 +185,8 @@ func removeWord(words []*textWord, word *textWord) []*textWord {
 			return removeWordAt(words, i)
 		}
 	}
-	panic("word not in words")
+	common.Log.Error("removeWord: words doesn't contain word=%s", word)
+	return nil
 }
 
 // removeWord returns `word` with `word[idx]` removed.

@@ -40,12 +40,12 @@ func makeWordBag(words []*textWord, pageHeight float64) *wordBag {
 // newWordBag returns an empty wordBag with page height `pageHeight`.
 func newWordBag(pageHeight float64) *wordBag {
 	bag := wordBag{
-		serial:       serial.strata,
+		serial:       serial.wordBag,
 		bins:         map[int][]*textWord{},
 		PdfRectangle: model.PdfRectangle{Urx: -1.0, Ury: -1.0},
 		pageHeight:   pageHeight,
 	}
-	serial.strata++
+	serial.wordBag++
 	return &bag
 }
 
@@ -311,13 +311,13 @@ func (b *wordBag) removeWord(depthIdx int, word *textWord) {
 	}
 }
 
-// mergeStratas merges paras less than a character width to the left of a stata;
-func mergeStratas(paras []*wordBag) []*wordBag {
+// mergWordBags merges paras less than a character width to the left of a stata;
+func mergWordBags(paras []*wordBag) []*wordBag {
 	if len(paras) <= 1 {
 		return paras
 	}
 	if verbose {
-		common.Log.Info("mergeStratas:")
+		common.Log.Info("mergWordBags:")
 	}
 	sort.Slice(paras, func(i, j int) bool {
 		pi, pj := paras[i], paras[j]
@@ -354,7 +354,7 @@ func mergeStratas(paras []*wordBag) []*wordBag {
 	}
 
 	if len(paras) != len(merged)+len(absorbed) {
-		common.Log.Error("mergeStratas: %d->%d absorbed=%d",
+		common.Log.Error("mergWordBags: %d->%d absorbed=%d",
 			len(paras), len(merged), len(absorbed))
 	}
 	return merged

@@ -18,11 +18,11 @@ var serial serialState
 
 // serialState keeps serial number for text* structs.
 type serialState struct {
-	mark   int // textMark
-	word   int // textWord
-	strata int // wordBag
-	line   int // textLine
-	para   int // textPara
+	mark    int // textMark
+	word    int // textWord
+	wordBag int // wordBag
+	line    int // textLine
+	para    int // textPara
 }
 
 // reset resets `serial` to all zeros.

@@ -192,7 +192,7 @@ func (p *textPara) fontsize() float64 {
 }
 
 // composePara builds a textPara from the words in `b`.
-// It does this by arranging the words in `strata` into lines.
+// It does this by arranging the words in `b` into lines.
 func (b *wordBag) composePara() *textPara {
 	// Sort the words in `para`'s bins in the reading direction.
 	b.sort()

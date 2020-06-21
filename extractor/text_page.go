@@ -16,32 +16,45 @@ import (
 )
 
 // makeTextPage builds a paraList from `marks`, the textMarks on a page.
+// The paraList contains the page arranged as
+//  - a list of texPara in reading order
+//  - each textPara contains list of textLine (text lines or parts of text lines) in reading order
+//  - each textLine contains a list of textWord (words or parts of words) in reading order
+// The paraList is thus an ordering of words on a page.
+//   - Users of the paraList are expected to work with words. This should be adequate for most uses
+//     as words are the basic unit of meaning in written language.
+//   - However we provide links back from the extracted text to the textMarks as follows.
+//        * paraList.writeText() returns the extracted text for a page
+//        * paras.toTextMarks() returns a TextMarkArray containing the marks
+//        * TextMarkArray.RangeOffset(lo, hi) return the marks corresponding offsets [lo:hi] in the
+//          extracted text.
+// NOTE: The "parts of words" occur because of hyphenation. We do some weak coordinate based
+//        dehypenation. Caller who need strong dehypenation should use NLP librarie.
+//       The "parts of lines" are an implementation detail. Line fragments are combined in
+//        paraList.writeText()
 func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraList {
 	common.Log.Trace("makeTextPage: %d elements pageSize=%.2f", len(marks), pageSize)
 
-	// Break the marks into words
+	// Group the marks into words.
 	words := makeTextWords(marks, pageSize)
 
-	// Divide the words into depth bins with each the contents of each bin sorted by reading direction
-	page := makeWordBag(words, pageSize.Ury)
+	// Put the words into a container that faciitates the following grouping of words into paragraphs.
+	pageWords := makeWordBag(words, pageSize.Ury)
+
 	// Divide the page into rectangular regions for each paragraph and creata a wordBag for each one.
-	paraStratas := dividePage(page, pageSize.Ury)
-	paraStratas = mergeStratas(paraStratas)
+	paraWords := dividePage(pageWords, pageSize.Ury)
+	paraWords = mergWordBags(paraWords)
+
 	// Arrange the contents of each para into lines
-	paras := make(paraList, len(paraStratas))
-	for i, para := range paraStratas {
+	paras := make(paraList, len(paraWords))
+	for i, para := range paraWords {
 		paras[i] = para.composePara()
 	}
 
-	paras.log("unsorted")
-
-	if useTables && len(paras) >= minTableParas {
+	// Find paras that are cells in tables and conver the tables to paras to replace the cells.
+	if len(paras) >= minTableParas {
 		paras = paras.extractTables()
 	}
-
-	// paras.log("tables extracted")
-	paras.computeEBBoxes()
-	paras.log("EBBoxes")
 
 	// Sort the paras into reading order.
 	paras.sortReadingOrder()
@@ -50,9 +63,9 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	return paras
 }
 
-// dividePage divides page builds a list of paragraph wordBag from `page`, the page wordBag.
-func dividePage(page *wordBag, pageHeight float64) []*wordBag {
-	var paraStratas []*wordBag
+// dividePage divides `pageWords` into a list of paragraph wordBags.
+func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
+	var paraWordBags []*wordBag
 
 	// We move words from `page` to paras until there no words left in page.
 	// We do this by iterating through `page` in depth bin order and, for each surving bin (see
@@ -66,61 +79,61 @@ func dividePage(page *wordBag, pageHeight float64) []*wordBag {
 		common.Log.Info("dividePage")
 	}
 	cnt := 0
-	for _, depthIdx := range page.depthIndexes() {
+	for _, depthIdx := range pageWords.depthIndexes() {
 		changed := false
-		for ; !page.empty(depthIdx); cnt++ {
+		for ; !pageWords.empty(depthIdx); cnt++ {
 			// Start a new paragraph region `para`.
-			// Build `para` out from the left-most (lowest in reading direction) word `words`[0],
+			// Build `paraWords` out from the left-most (lowest in reading direction) word `words`[0],
 			// in the bins in and below `depthIdx`.
-			para := newWordBag(pageHeight)
+			paraWords := newWordBag(pageHeight)
 
 			// words[0] is the leftmost word from the bins in and a few lines below `depthIdx`. We
-			// seed 'para` with this word.
-			firstReadingIdx := page.firstReadingIndex(depthIdx)
-			words := page.getStratum(firstReadingIdx)
-			moveWord(firstReadingIdx, page, para, words[0])
+			// seed 'paraWords` with this word.
+			firstReadingIdx := pageWords.firstReadingIndex(depthIdx)
+			words := pageWords.getStratum(firstReadingIdx)
+			moveWord(firstReadingIdx, pageWords, paraWords, words[0])
 			if verbosePage {
 				common.Log.Info("words[0]=%s", words[0].String())
 			}
 
-			// The following 3 numbers define whether words should be added to `para`.
-			minInterReadingGap := minInterReadingGapR * para.fontsize
-			maxIntraReadingGap := maxIntraReadingGapR * para.fontsize
-			maxIntraDepthGap := maxIntraDepthGapR * para.fontsize
+			// The following 3 numbers define whether words should be added to `paraWords`.
+			minInterReadingGap := minInterReadingGapR * paraWords.fontsize
+			maxIntraReadingGap := maxIntraReadingGapR * paraWords.fontsize
+			maxIntraDepthGap := maxIntraDepthGapR * paraWords.fontsize
 
-			// Add words to `para` until we pass through the following loop without a new word
+			// Add words to `paraWords` until we pass through the following loop without a new word
 			// being added.
 			for running := true; running; running = changed {
 				changed = false
 
-				// Add words that are within maxIntraDepthGap of `para` in the depth direction.
-				// i.e. Stretch para in the depth direction, vertically for English text.
+				// Add words that are within maxIntraDepthGap of `paraWords` in the depth direction.
+				// i.e. Stretch paraWords in the depth direction, vertically for English text.
 				if verbosePage {
-					common.Log.Info("para depth %.2f - %.2f maxIntraDepthGap=%.2f ",
-						para.minDepth(), para.maxDepth(), maxIntraDepthGap)
+					common.Log.Info("paraWords depth %.2f - %.2f maxIntraDepthGap=%.2f ",
+						paraWords.minDepth(), paraWords.maxDepth(), maxIntraDepthGap)
 				}
-				if page.scanBand("vertical", para, partial(readingOverlapPlusGap, 0),
-					para.minDepth()-maxIntraDepthGap, para.maxDepth()+maxIntraDepthGap,
+				if pageWords.scanBand("vertical", paraWords, partial(readingOverlapPlusGap, 0),
+					paraWords.minDepth()-maxIntraDepthGap, paraWords.maxDepth()+maxIntraDepthGap,
 					maxIntraDepthFontTolR, false, false) > 0 {
 					changed = true
 				}
-				// Add words that are within maxIntraReadingGap of `para` in the reading direction.
-				// i.e. Stretch para in the reading direction, horizontall for English text.
-				if page.scanBand("horizontal", para, partial(readingOverlapPlusGap, maxIntraReadingGap),
-					para.minDepth(), para.maxDepth(),
+				// Add words that are within maxIntraReadingGap of `paraWords` in the reading direction.
+				// i.e. Stretch paraWords in the reading direction, horizontall for English text.
+				if pageWords.scanBand("horizontal", paraWords, partial(readingOverlapPlusGap, maxIntraReadingGap),
+					paraWords.minDepth(), paraWords.maxDepth(),
 					maxIntraReadingFontTol, false, false) > 0 {
 					changed = true
 				}
 				// The above stretching has got as far as it go. Repeating it won't pull in more words.
 
-				// Only try to combine other words if we can't grow para in the simple way above.
+				// Only try to combine other words if we can't grow paraWords in the simple way above.
 				if changed {
 					continue
 				}
 
-				// In the following cases, we don't expand `para` while scanning. We look for words
-				// around para. If we find them, we add them then expand `para` when we are done.
-				// This pulls the numbers to the left of para into para
+				// In the following cases, we don't expand `paraWords` while scanning. We look for words
+				// around paraWords. If we find them, we add them then expand `paraWords` when we are done.
+				// This pulls the numbers to the left of paraWords into paraWords
 				// e.g. From
 				// 		Regulatory compliance
 				// 		Archiving
@@ -130,18 +143,18 @@ func dividePage(page *wordBag, pageHeight float64) []*wordBag {
 				// 		2. Archiving
 				// 		3. Document search
 
-				// If there are words to the left of `para`, add them.
+				// If there are words to the left of `paraWords`, add them.
 				// We need to limit the number of words.
 				otherTol := minInterReadingFontTol
 				// otherTol = 0.7
-				n := page.scanBand("", para, partial(readingOverlapLeft, minInterReadingGap),
-					para.minDepth(), para.maxDepth(),
+				n := pageWords.scanBand("", paraWords, partial(readingOverlapLeft, minInterReadingGap),
+					paraWords.minDepth(), paraWords.maxDepth(),
 					otherTol, true, false)
 				if n > 0 {
-					r := (para.maxDepth() - para.minDepth()) / para.fontsize
+					r := (paraWords.maxDepth() - paraWords.minDepth()) / paraWords.fontsize
 					if (n > 1 && float64(n) > 0.3*r) || n <= 10 {
-						if page.scanBand("other", para, partial(readingOverlapLeft, minInterReadingGap),
-							para.minDepth(), para.maxDepth(),
+						if pageWords.scanBand("other", paraWords, partial(readingOverlapLeft, minInterReadingGap),
+							paraWords.minDepth(), paraWords.maxDepth(),
 							otherTol, false, true) > 0 {
 							changed = true
 						}
@@ -150,14 +163,14 @@ func dividePage(page *wordBag, pageHeight float64) []*wordBag {
 			}
 
 			if verbosePage {
-				para.sort()
-				common.Log.Info("para=%s", para.String())
+				paraWords.sort()
+				common.Log.Info("paraWords=%s", paraWords.String())
 			}
-			paraStratas = append(paraStratas, para)
+			paraWordBags = append(paraWordBags, paraWords)
 		}
 	}
 
-	return paraStratas
+	return paraWordBags
 }
 
 // writeText writes the text in `paras` to `w`.
@@ -204,7 +217,8 @@ func sameLine(para1, para2 *textPara) bool {
 	return isZero(para1.depth() - para2.depth())
 }
 
-func (paras paraList) toTables() []TextTable {
+// tables returns the tables from all the paras that contain them.
+func (paras paraList) tables() []TextTable {
 	var tables []TextTable
 	for _, para := range paras {
 		if para.table != nil {
@@ -220,10 +234,9 @@ func (paras paraList) sortReadingOrder() {
 	if len(paras) <= 1 {
 		return
 	}
+	paras.computeEBBoxes()
 	sort.Slice(paras, func(i, j int) bool { return diffDepthReading(paras[i], paras[j]) <= 0 })
-	paras.log("diffReadingDepth")
 	order := paras.topoOrder()
-
 	paras.reorder(order)
 }
 

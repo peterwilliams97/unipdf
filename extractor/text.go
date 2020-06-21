@@ -37,6 +37,8 @@ func (e *Extractor) ExtractText() (string, error) {
 
 // ExtractTextWithStats works like ExtractText but returns the number of characters in the output
 // (`numChars`) and the number of characters that were not decoded (`numMisses`).
+// Deprecated: This function is deprecated and will be removed in a future major version. Please use
+// ExtractText() instead.
 func (e *Extractor) ExtractTextWithStats() (extracted string, numChars int, numMisses int, err error) {
 	pageText, numChars, numMisses, err := e.ExtractPageText()
 	if err != nil {
@@ -46,13 +48,15 @@ func (e *Extractor) ExtractTextWithStats() (extracted string, numChars int, numM
 }
 
 // ExtractPageText returns the text contents of `e` (an Extractor for a page) as a PageText.
+// TODO(peterwilliams97): The stats complicate this function signature and aren't very useful.
+//                        Replace with a function like Extract() (*PageText, error)
 func (e *Extractor) ExtractPageText() (*PageText, int, int, error) {
 	pt, numChars, numMisses, err := e.extractPageText(e.contents, e.resources, transform.IdentityMatrix(), 0)
 	if err != nil {
 		return nil, numChars, numMisses, err
 	}
 	pt.computeViews()
-	// procBuf(pt)
+	procBuf(pt)
 
 	return pt, numChars, numMisses, err
 }
@@ -101,12 +105,9 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 			}
 
 			switch operand {
-			case "q":
+			case "q": //Push current graphics state to the stack.
 				savedStates.push(&state)
-			case "Q":
-				if verboseGeom {
-					common.Log.Info("Restore state: %s", savedStates.String())
-				}
+			case "Q": // // Pop graphics state from the stack.
 				if !savedStates.empty() {
 					state = *savedStates.top()
 					if len(savedStates) >= 2 {
@@ -128,7 +129,6 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				graphicsState := gs
 				graphicsState.CTM = parentCTM.Mult(graphicsState.CTM)
 				to = newTextObject(e, resources, graphicsState, &state, &savedStates)
-
 			case "ET": // End Text
 				// End text object, discarding text matrix. If the current
 				// text object contains text marks, they are added to the
@@ -891,8 +891,8 @@ func isTextSpace(text string) bool {
 type PageText struct {
 	marks      []*textMark        // Texts and their positions on a PDF page.
 	viewText   string             // Extracted page text.
-	viewMarks  []TextMark         // Public view of text marks`.
-	viewTables []TextTable        // Public view of text table`.
+	viewMarks  []TextMark         // Public view of text marks.
+	viewTables []TextTable        // Public view of text tables.
 	pageSize   model.PdfRectangle // Page size. Used to calculate depth.
 }
 
@@ -940,7 +940,7 @@ func (pt *PageText) computeViews() {
 	paras.writeText(b)
 	pt.viewText = b.String()
 	pt.viewMarks = paras.toTextMarks()
-	pt.viewTables = paras.toTables()
+	pt.viewTables = paras.tables()
 }
 
 // TextMarkArray is a collection of TextMarks.
@@ -1060,7 +1060,6 @@ func (ma *TextMarkArray) BBox() (model.PdfRectangle, bool) {
 //      bbox, ok := spanMarks.BBox()
 //      // handle errors
 type TextMark struct {
-	count int64
 	// Text is the extracted text. It has been decoded to Unicode via ToUnicode().
 	Text string
 	// Original is the text in the PDF. It has not been decoded like `Text`.
@@ -1080,6 +1079,8 @@ type TextMark struct {
 	// spaces (line breaks) when we see characters that are over a threshold horizontal (vertical)
 	//  distance  apart. See wordJoiner (lineJoiner) in PageText.computeViews().
 	Meta bool
+	// For debugging
+	count int64
 }
 
 // String returns a string describing `tm`.

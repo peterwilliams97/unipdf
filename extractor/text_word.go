@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/unidoc/unipdf/v3/common"
-	"github.com/unidoc/unipdf/v3/internal/textencoding"
 	"github.com/unidoc/unipdf/v3/model"
 )
 
@@ -145,9 +144,6 @@ func (w *textWord) addMark(tm *textMark, pageSize model.PdfRectangle) {
 		w.fontsize = tm.fontsize
 	}
 	w.depth = pageSize.Ury - w.PdfRectangle.Lly
-	if w.depth < 0 {
-		panic(w.depth)
-	}
 }
 
 // len returns the number of runes in `w`.
@@ -177,25 +173,7 @@ func (w *textWord) toTextMarks(offset *int) []TextMark {
 	for _, tm := range w.marks {
 		marks = appendTextMark(marks, offset, tm.ToTextMark())
 	}
-	if len(w.text()) > 0 && len(marks) == 0 {
-		panic(w.text())
-	}
 	return marks
-}
-
-// font returns the fontID of the `idx`th rune in text.
-// compute on creation? !@#$
-func (w *textWord) font(idx int) string {
-	numChars := 0
-	for _, tm := range w.marks {
-		for _, r := range tm.text {
-			numChars += len(textencoding.RuneToString(r))
-			if numChars > idx {
-				return fmt.Sprintf("%s:%.3f", tm.font, tm.fontsize)
-			}
-		}
-	}
-	panic("no match")
 }
 
 // removeWord returns `words` with `word` removed.

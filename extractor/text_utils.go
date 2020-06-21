@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-
-	"github.com/unidoc/unipdf/v3/common"
 )
 
 // serial is used to add serial numbers to all text* instances.
@@ -75,20 +73,13 @@ func fileLine(skip int, doSecond bool) string {
 	return fmt.Sprintf("%s:%-4d", depth, line2)
 }
 
+// addNeighbours fills out the below and right fields of the paras in `paras`.
+// For each para `a`:
+//    a.below is the unique highest para completely below `a` that overlaps a in the x-direction
+//    a.right is the unique leftmost para completely to the right of `a` that overlaps a in the y-direction
 func (paras paraList) addNeighbours() {
-	s := func(p *textPara) string {
-		if p == nil {
-			return ""
-		}
-		return fmt.Sprintf("%s {%.1f}", truncate(p.text(), 20), p.PdfRectangle)
-	}
-
 	paraNeighbours := paras.yNeighbours()
 	for _, para := range paras {
-		// parts := make([]string, len(paraNeighbours[para]))
-		// for i, k := range paraNeighbours[para] {
-		// 	parts[i] = truncate(paras[k].text(), 10)
-		// }
 		var right *textPara
 		dup := false
 		for _, k := range paraNeighbours[para] {
@@ -106,26 +97,15 @@ func (paras paraList) addNeighbours() {
 				}
 			}
 		}
-		if verboseTable2 && right != nil {
-			common.Log.Info("%30s -> %s %t", s(para), s(right), dup)
-		}
 		if !dup {
 			para.right = right
 		}
-		if right != nil && right.Llx < para.Urx {
-			panic("wrogn")
-		}
 	}
-	// panic("DANE")
 
 	paraNeighbours = paras.xNeighbours()
 	for _, para := range paras {
 		var below *textPara
 		dup := false
-		// parts := make([]string, len(paraNeighbours[para]))
-		// for i, k := range paraNeighbours[para] {
-		// 	parts[i] = truncate(paras[k].text(), 10)
-		// }
 		for _, i := range paraNeighbours[para] {
 			b := paras[i]
 			if b.Ury <= para.Lly {
@@ -141,15 +121,10 @@ func (paras paraList) addNeighbours() {
 				}
 			}
 		}
-		if verboseTable2 && below != nil {
-			common.Log.Info("%30s -> %s %t", s(para), s(below), dup)
-		}
-
 		if !dup {
 			para.below = below
 		}
 	}
-	// panic("DUNE")
 }
 
 // xNeighbours returns a map {para: indexes of paras that x-overlap para}.
@@ -193,7 +168,7 @@ func (paras paraList) eventNeighbours(events []event) map[*textPara][]int {
 
 	overlaps := map[int]map[int]struct{}{}
 	olap := map[int]struct{}{}
-	for k, e := range events {
+	for _, e := range events {
 		if e.enter {
 			overlaps[e.i] = map[int]struct{}{}
 			for i := range olap {
@@ -206,12 +181,8 @@ func (paras paraList) eventNeighbours(events []event) map[*textPara][]int {
 		} else {
 			delete(olap, e.i)
 		}
-		if verboseTable2 {
-			common.Log.Info("%4d: {%7.3f %5t %2d} %2d %2d",
-				k, e.z, e.enter, e.i, len(olap), len(overlaps[e.i]))
-		}
 	}
-	// panic("DINE")
+
 	paraNeighbors := map[*textPara][]int{}
 	for i, olap := range overlaps {
 		para := paras[i]

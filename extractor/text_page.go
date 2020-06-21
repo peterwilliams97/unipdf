@@ -34,20 +34,14 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	}
 
 	paras.log("unsorted")
-	// paras.computeEBBoxes()
 
-	n0 := len(paras)
-	if useTables && len(paras) >= 4 {
+	if useTables && len(paras) >= minTableParas {
 		paras = paras.extractTables()
-		if len(paras) == 0 {
-			common.Log.Info("\n\tPARAS: %3d -> %3d", n0, len(paras))
-			panic("np paras")
-		}
 	}
 
 	// paras.log("tables extracted")
 	paras.computeEBBoxes()
-	paras.log("EBBoxes 2")
+	paras.log("EBBoxes")
 
 	// Sort the paras into reading order.
 	paras.sortReadingOrder()
@@ -222,7 +216,7 @@ func (paras paraList) toTables() []TextTable {
 
 // sortReadingOrder sorts `paras` in reading order.
 func (paras paraList) sortReadingOrder() {
-	common.Log.Debug("sortReadingOrder: paras=%d ===========x=============", len(paras))
+	common.Log.Trace("sortReadingOrder: paras=%d ===========x=============", len(paras))
 	if len(paras) <= 1 {
 		return
 	}

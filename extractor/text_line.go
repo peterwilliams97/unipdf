@@ -7,7 +7,6 @@ package extractor
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"unicode"
 
@@ -75,9 +74,6 @@ func (l *textLine) toTextMarks(offset *int) []TextMark {
 			marks = appendSpaceMark(marks, offset, " ")
 		}
 	}
-	if len(l.text()) > 0 && len(marks) == 0 {
-		panic(l.text())
-	}
 	return marks
 }
 
@@ -105,23 +101,14 @@ func (l *textLine) mergeWordFragments() {
 	fontsize := l.fontsize
 	if len(l.words) > 1 {
 		maxGap := maxIntraLineGapR * fontsize
-		fontTol := maxIntraWordFontTolR * fontsize
 		merged := []*textWord{l.words[0]}
 
 		for _, word := range l.words[1:] {
 			lastMerged := merged[len(merged)-1]
-			doMerge := false
 			if gapReading(word, lastMerged) >= maxGap {
 				lastMerged.spaceAfter = true
-			} else if lastMerged.font(lastMerged.len()-1) == word.font(0) &&
-				math.Abs(lastMerged.fontsize-word.fontsize) < fontTol {
-				doMerge = true
 			}
-			if doMerge {
-				lastMerged.absorb(word)
-			} else {
-				merged = append(merged, word)
-			}
+			merged = append(merged, word)
 		}
 		l.words = merged
 	}

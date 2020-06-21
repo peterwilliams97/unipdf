@@ -14,7 +14,6 @@ const (
 	verboseParaLine = verbosePara && true
 	verboseParaWord = verboseParaLine && false
 	verboseTable    = false
-	verboseTable2   = false
 )
 
 // The following constants control the approaches used in the code.
@@ -63,4 +62,7 @@ const (
 
 	// Maximum spacing between characters within a line.
 	maxIntraLineGapR = 0.03
+
+	// minimum number of cells in a textTable
+	minTableParas = 6
 )

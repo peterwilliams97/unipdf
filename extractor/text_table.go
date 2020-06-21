@@ -24,7 +24,7 @@ func (paras paraList) extractTables() paraList {
 	if verboseTable {
 		common.Log.Debug("extractTables=%d ===========x=============", len(paras))
 	}
-	if len(paras) < 4 {
+	if len(paras) < minTableParas {
 		return paras
 	}
 
@@ -33,21 +33,11 @@ func (paras paraList) extractTables() paraList {
 	if verboseTable {
 		common.Log.Info("combined tables %d ================", len(tables))
 		for i, t := range tables {
-			fmt.Printf("%4d: %2d x %2d  %6.1f\n", i, t.w, t.h, t.PdfRectangle)
-		}
-	}
-	if verboseTable {
-		common.Log.Info("combined tables %d ================", len(tables))
-		for i, t := range tables {
 			t.log(fmt.Sprintf("combined %d", i))
 		}
 	}
-	// if len(tables) == 0 {panic("NO TABLES")}
 
 	paras = paras.applyTables(tables)
-	if len(paras) == 0 {
-		panic("nOOope paras")
-	}
 
 	return paras
 }
@@ -60,18 +50,6 @@ func (paras paraList) findTables() []*textTable {
 		return diffReadingDepth(paras[i], paras[j]) < 0
 	})
 
-	s := func(p *textPara) string {
-		if p == nil {
-			return ""
-		}
-		return truncate(p.text(), 20)
-	}
-
-	if verboseTable2 {
-		for i, p := range paras {
-			fmt.Printf("%4d: %22s %22s %22s\n", i, s(p), s(p.below), s(p.right))
-		}
-	}
 	var tables []*textTable
 	for _, para := range paras {
 		if para.isCell {
@@ -81,16 +59,14 @@ func (paras paraList) findTables() []*textTable {
 		if table == nil {
 			continue
 		}
-		// table.log("atom")
-		// panic("atam")
+
 		table.growTable()
-		if table.w*table.h < 6 {
+		if table.w*table.h < minTableParas {
 			continue
 		}
-		table.markTable()
+		table.markCells()
 		table.log("grown")
 		tables = append(tables, table)
-		// table.log("New textTable")
 
 	}
 	return tables
@@ -207,8 +183,9 @@ func (t *textTable) getRight() paraList {
 	return cells
 }
 
+// applyTables replaces the paras that re  cells in `tables` with paras containing the tables in
+//`tables`. This, of course, reduces the number of paras.
 func (paras paraList) applyTables(tables []*textTable) paraList {
-	// if len(tables) == 0 {panic("no tables")}
 	consumed := map[*textPara]struct{}{}
 	var tabled paraList
 	for _, table := range tables {
@@ -222,14 +199,12 @@ func (paras paraList) applyTables(tables []*textTable) paraList {
 			tabled = append(tabled, para)
 		}
 	}
-	if len(tabled) == 0 {
-		common.Log.Error("paras=%d", len(paras))
-		panic("nope paras")
-	}
 	return tabled
 }
 
-func (t *textTable) markTable() {
+// markCells marks the paras that are cells in `t` with isCell=true so that the won't be considered
+// as cell candidates for tables in the future.
+func (t *textTable) markCells() {
 	for y := 0; y < t.h; y++ {
 		for x := 0; x < t.w; x++ {
 			para := t.get(x, y)
@@ -294,37 +269,15 @@ func cellIndex(x, y int) uint64 {
 	return uint64(x)*0x1000000 + uint64(y)
 }
 
-func (t *textTable) validate(x, y int) {
-	err := fmt.Errorf("x=%d y=%d t.w=%d t.h=%d", x, y, t.w, t.h)
-	if !(0 <= x && x < t.w) {
-		panic(err)
-	}
-	if !(0 <= y && y < t.h) {
-		panic(err)
-	}
-}
-
 func (t *textTable) get(x, y int) *textPara {
-	t.validate(x, y)
-	cell := t.cells[cellIndex(x, y)]
-	if cell == nil {
-		err := fmt.Errorf("x=%d y=%d t.w=%d t.h=%d", x, y, t.w, t.h)
-		panic(err)
-	}
-	return cell
+	return t.cells[cellIndex(x, y)]
 }
 
 func (t *textTable) put(x, y int, cell *textPara) {
-	t.validate(x, y)
-	if cell == nil {
-		err := fmt.Errorf("x=%d y=%d t.w=%d t.h=%d", x, y, t.w, t.h)
-		panic(err)
-	}
 	t.cells[cellIndex(x, y)] = cell
 }
 
 func (t *textTable) del(x, y int) {
-	t.validate(x, y)
 	delete(t.cells, cellIndex(x, y))
 }
 
@@ -333,6 +286,5 @@ func (t *textTable) bbox() model.PdfRectangle {
 }
 
 func (t *textTable) String() string {
-
 	return fmt.Sprintf("%d x %d", t.w, t.h)
 }

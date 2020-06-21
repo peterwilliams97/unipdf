@@ -35,13 +35,6 @@ type bounded interface {
 	bbox() model.PdfRectangle
 }
 
-// func center(a bounded) transform.Point {
-// 	box := a.bbox()
-// 	return transform.Point{
-// 		X: 0.5 * (box.Llx + box.Urx),
-// 		Y: 0.5 * (box.Lly + box.Ury)}
-// }
-
 // getDepth returns the depth of `a` on a page of size `pageSize`.
 func getDepth(pageSize model.PdfRectangle, a bounded) float64 {
 	return pageSize.Ury - a.bbox().Lly

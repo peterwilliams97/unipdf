@@ -245,10 +245,8 @@ func (b *wordBag) firstReadingIndex(minDepthIdx int) int {
 }
 
 // getDepthIdx returns the index into `b.bins` for depth axis value `depth`.
+// Caller must check that len(b.bins) > 0.
 func (b *wordBag) getDepthIdx(depth float64) int {
-	if len(b.bins) == 0 {
-		panic("NOT ALLOWED")
-	}
 	indexes := b.depthIndexes()
 	depthIdx := depthIndex(depth)
 	if depthIdx < indexes[0] {
@@ -273,9 +271,6 @@ func (b *wordBag) empty(depthIdx int) bool {
 // underlying the slice.
 func (b *wordBag) getStratum(depthIdx int) []*textWord {
 	words := b.bins[depthIdx]
-	if words == nil {
-		panic("NOT ALLOWED")
-	}
 	dup := make([]*textWord, len(words))
 	copy(dup, words)
 	return dup
@@ -359,9 +354,8 @@ func mergeStratas(paras []*wordBag) []*wordBag {
 	}
 
 	if len(paras) != len(merged)+len(absorbed) {
-		common.Log.Info("mergeStratas: %d->%d absorbed=%d",
+		common.Log.Error("mergeStratas: %d->%d absorbed=%d",
 			len(paras), len(merged), len(absorbed))
-		panic("wrong")
 	}
 	return merged
 }

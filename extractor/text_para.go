@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"unicode"
 
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
@@ -139,12 +138,6 @@ func (p *textPara) toCellTextMarks(offset *int) []TextMark {
 		lineMarks := line.toTextMarks(offset)
 		reduced := doHyphens && line.hyphenated && il != len(p.lines)-1
 		if reduced { // Line ending with hyphen. Remove it.
-			if len([]rune(line.text())) < minHyphenation {
-				panic(line.text())
-			}
-			if len(lineMarks) < 1 {
-				panic(line.text())
-			}
 			lineMarks = removeLastTextMarkRune(lineMarks, offset)
 		}
 		marks = append(marks, lineMarks...)
@@ -159,9 +152,6 @@ func (p *textPara) toCellTextMarks(offset *int) []TextMark {
 func removeLastTextMarkRune(marks []TextMark, offset *int) []TextMark {
 	tm := marks[len(marks)-1]
 	runes := []rune(tm.Text)
-	if unicode.IsSpace(runes[len(runes)-1]) {
-		panic(tm)
-	}
 	if len(runes) == 1 {
 		marks = marks[:len(marks)-1]
 		tm1 := marks[len(marks)-1]
@@ -177,9 +167,6 @@ func removeLastTextMarkRune(marks []TextMark, offset *int) []TextMark {
 // removeLastRune removes the last run from `text`.
 func removeLastRune(text string) string {
 	runes := []rune(text)
-	if len(runes) < 2 {
-		panic(text)
-	}
 	return string(runes[:len(runes)-1])
 }
 
@@ -198,11 +185,9 @@ func (p *textPara) bbox() model.PdfRectangle {
 	return p.PdfRectangle
 }
 
-// fontsize return the para's fontsize which we take to be the first line's fontsize
+// fontsize return the para's fontsize which we take to be the first line's fontsize.
+// Caller must check that `p` has at least one line.
 func (p *textPara) fontsize() float64 {
-	if len(p.lines) == 0 {
-		panic(p)
-	}
 	return p.lines[0].fontsize
 }
 
@@ -262,10 +247,6 @@ func (b *wordBag) composePara() *textPara {
 				// remove `leftWord` from `b`[`leftDepthIdx`], and append it to `line`.
 				line.moveWord(b, leftDepthIdx, leftWord)
 				lastWord = leftWord
-				// // TODO(peterwilliams97): Replace lastWord with line.words[len(line.words)-1] ???
-				// if lastWord != line.words[len(line.words)-1] {
-				// 	panic("ddd")
-				// }
 			}
 
 			line.mergeWordFragments()
@@ -277,9 +258,7 @@ func (b *wordBag) composePara() *textPara {
 	sort.Slice(para.lines, func(i, j int) bool {
 		return diffDepthReading(para.lines[i], para.lines[j]) < 0
 	})
-	if len(para.lines) == 0 {
-		panic(para)
-	}
+
 	if verbosePara {
 		common.Log.Info("!!! para=%s", para.String())
 		if verboseParaLine {
@@ -315,11 +294,5 @@ func (paras paraList) log(title string) {
 			tabl = fmt.Sprintf("[%dx%d]", para.table.w, para.table.h)
 		}
 		fmt.Printf("%4d: %6.2f %s %q\n", i, para.PdfRectangle, tabl, truncate(text, 50))
-		if len(text) == 0 {
-			panic("empty")
-		}
-		if para.table != nil && len(para.table.cells) == 0 {
-			panic(para)
-		}
 	}
 }

@@ -123,3 +123,7 @@ right and bottom for para formation
 textStrata -> wordBag
 search for receivers
 check if functions are called
+check for constant values
+check for names
+    hyphenated
+    spaceAfter

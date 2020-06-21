@@ -166,7 +166,7 @@ func (t *textTable) growTable() {
 		if !changed {
 			break
 		}
-		if i > 10000 || t.w > 20 || t.h > 200 {
+		if i > 10000 || t.w > 100 || t.h > 200 {
 			err := fmt.Errorf("i=%d t=%s", i, t.String())
 			panic(err)
 		}

@@ -117,3 +117,7 @@ Computation time
 
 TODO
 Breuel O(n) before map[from,to]bool
+right and bottom for para formation
+textStrata -> wordBag
+map[]bool -> map[]struct{}
+search for receivers

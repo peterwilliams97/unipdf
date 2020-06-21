@@ -28,55 +28,55 @@ type wordBag struct {
 // makeWordBag builds a wordBag from `words` by putting the words into the appropriate
 // depth bins.
 func makeWordBag(words []*textWord, pageHeight float64) *wordBag {
-	s := newWordBag(pageHeight)
+	b := newWordBag(pageHeight)
 	for _, w := range words {
 		depthIdx := depthIndex(w.depth)
-		s.bins[depthIdx] = append(s.bins[depthIdx], w)
+		b.bins[depthIdx] = append(b.bins[depthIdx], w)
 	}
-	s.sort()
-	return s
+	b.sort()
+	return b
 }
 
 // newWordBag returns an empty wordBag with page height `pageHeight`.
 func newWordBag(pageHeight float64) *wordBag {
-	strata := wordBag{
+	bag := wordBag{
 		serial:       serial.strata,
 		bins:         map[int][]*textWord{},
 		PdfRectangle: model.PdfRectangle{Urx: -1.0, Ury: -1.0},
 		pageHeight:   pageHeight,
 	}
 	serial.strata++
-	return &strata
+	return &bag
 }
 
 // String returns a description of `s`.
-func (s *wordBag) String() string {
+func (b *wordBag) String() string {
 	var texts []string
-	for _, depthIdx := range s.depthIndexes() {
-		words, _ := s.bins[depthIdx]
+	for _, depthIdx := range b.depthIndexes() {
+		words, _ := b.bins[depthIdx]
 		for _, w := range words {
 			texts = append(texts, w.text())
 		}
 	}
 	return fmt.Sprintf("serial=%d %.2f fontsize=%.2f %d %q",
-		s.serial, s.PdfRectangle, s.fontsize, len(texts), texts)
+		b.serial, b.PdfRectangle, b.fontsize, len(texts), texts)
 }
 
 // sort sorts the words in each bin in `s` in the reading direction.
-func (s *wordBag) sort() {
-	for _, bin := range s.bins {
+func (b *wordBag) sort() {
+	for _, bin := range b.bins {
 		sort.Slice(bin, func(i, j int) bool { return diffReading(bin[i], bin[j]) < 0 })
 	}
 }
 
 // minDepth returns the minimum depth that words in `s` touch.
-func (s *wordBag) minDepth() float64 {
-	return s.pageHeight - (s.Ury - s.fontsize)
+func (b *wordBag) minDepth() float64 {
+	return b.pageHeight - (b.Ury - b.fontsize)
 }
 
 // maxDepth returns the maximum depth that words in `s` touch.
-func (s *wordBag) maxDepth() float64 {
-	return s.pageHeight - s.Lly
+func (b *wordBag) maxDepth() float64 {
+	return b.pageHeight - b.Lly
 }
 
 // depthIndex returns a bin index for depth `depth`.
@@ -92,14 +92,14 @@ func depthIndex(depth float64) int {
 	return depthIdx
 }
 
-// depthIndexes returns the sorted keys of s.bins.
-func (s *wordBag) depthIndexes() []int {
-	if len(s.bins) == 0 {
+// depthIndexes returns the sorted keys of b.bins.
+func (b *wordBag) depthIndexes() []int {
+	if len(b.bins) == 0 {
 		return nil
 	}
-	indexes := make([]int, len(s.bins))
+	indexes := make([]int, len(b.bins))
 	i := 0
-	for idx := range s.bins {
+	for idx := range b.bins {
 		indexes[i] = idx
 		i++
 	}
@@ -114,7 +114,7 @@ func (s *wordBag) depthIndexes() []int {
 // and applies `moveWord`(depthIdx, s,para w) to them.
 // If `detectOnly` is true, moveWord is not applied.
 // If `freezeDepth` is true, minDepth and maxDepth are not updated in scan as words are added.
-func (s *wordBag) scanBand(title string, para *wordBag,
+func (b *wordBag) scanBand(title string, para *wordBag,
 	readingOverlap func(para *wordBag, word *textWord) bool,
 	minDepth, maxDepth, fontTol float64,
 	detectOnly, freezeDepth bool) int {
@@ -123,8 +123,8 @@ func (s *wordBag) scanBand(title string, para *wordBag,
 	n := 0
 	minDepth0, maxDepth0 := minDepth, maxDepth
 	var newWords []*textWord
-	for _, depthIdx := range s.depthBand(minDepth-lineDepth, maxDepth+lineDepth) {
-		for _, word := range s.bins[depthIdx] {
+	for _, depthIdx := range b.depthBand(minDepth-lineDepth, maxDepth+lineDepth) {
+		for _, word := range b.bins[depthIdx] {
 			if !(minDepth-lineDepth <= word.depth && word.depth <= maxDepth+lineDepth) {
 				continue
 			}
@@ -141,7 +141,7 @@ func (s *wordBag) scanBand(title string, para *wordBag,
 			}
 
 			if !detectOnly {
-				moveWord(depthIdx, s, para, word)
+				moveWord(depthIdx, b, para, word)
 			}
 			newWords = append(newWords, word)
 			n++
@@ -182,8 +182,8 @@ func (s *wordBag) scanBand(title string, para *wordBag,
 	return n
 }
 
-func (para *wordBag) text() string {
-	words := para.allWords()
+func (b *wordBag) text() string {
+	words := b.allWords()
 	texts := make([]string, len(words))
 	for i, w := range words {
 		texts[i] = w.text()
@@ -191,13 +191,13 @@ func (para *wordBag) text() string {
 	return strings.Join(texts, " ")
 }
 
-// stratumBand returns the words in s.bins[depthIdx] w: minDepth <= w.depth <= maxDepth.
-func (s *wordBag) stratumBand(depthIdx int, minDepth, maxDepth float64) []*textWord {
-	if len(s.bins) == 0 {
+// stratumBand returns the words in b.bins[depthIdx] w: minDepth <= w.depth <= maxDepth.
+func (b *wordBag) stratumBand(depthIdx int, minDepth, maxDepth float64) []*textWord {
+	if len(b.bins) == 0 {
 		return nil
 	}
 	var words []*textWord
-	for _, word := range s.bins[depthIdx] {
+	for _, word := range b.bins[depthIdx] {
 		if minDepth <= word.depth && word.depth <= maxDepth {
 			words = append(words, word)
 		}
@@ -206,17 +206,17 @@ func (s *wordBag) stratumBand(depthIdx int, minDepth, maxDepth float64) []*textW
 }
 
 // depthBand returns the indexes of the bins with depth: `minDepth` <= depth <= `maxDepth`.
-func (s *wordBag) depthBand(minDepth, maxDepth float64) []int {
-	if len(s.bins) == 0 {
+func (b *wordBag) depthBand(minDepth, maxDepth float64) []int {
+	if len(b.bins) == 0 {
 		return nil
 	}
 
-	return s.depthRange(s.getDepthIdx(minDepth), s.getDepthIdx(maxDepth))
+	return b.depthRange(b.getDepthIdx(minDepth), b.getDepthIdx(maxDepth))
 }
 
-// depthRange returns the sorted keys of s.bins for depths indexes [`minDepth`,`maxDepth`).
-func (s *wordBag) depthRange(minDepthIdx, maxDepthIdx int) []int {
-	indexes := s.depthIndexes()
+// depthRange returns the sorted keys of b.bins for depths indexes [`minDepth`,`maxDepth`).
+func (b *wordBag) depthRange(minDepthIdx, maxDepthIdx int) []int {
+	indexes := b.depthIndexes()
 	var rangeIndexes []int
 	for _, depthIdx := range indexes {
 		if minDepthIdx <= depthIdx && depthIdx <= maxDepthIdx {
@@ -229,27 +229,27 @@ func (s *wordBag) depthRange(minDepthIdx, maxDepthIdx int) []int {
 // firstReadingIndex returns the index of the depth bin that starts with that word with the smallest
 // reading direction value in the depth region `minDepthIndex` < depth <= minDepthIndex+ 4*fontsize
 // This avoids choosing a bin that starts with a superscript word.
-func (s *wordBag) firstReadingIndex(minDepthIdx int) int {
+func (b *wordBag) firstReadingIndex(minDepthIdx int) int {
 	firstReadingIdx := minDepthIdx
-	firstReadingWords := s.getStratum(firstReadingIdx)
+	firstReadingWords := b.getStratum(firstReadingIdx)
 	fontsize := firstReadingWords[0].fontsize
 	minDepth := float64(minDepthIdx+1) * depthBinPoints
-	for _, depthIdx := range s.depthBand(minDepth, minDepth+4*fontsize) {
-		words := s.getStratum(depthIdx)
+	for _, depthIdx := range b.depthBand(minDepth, minDepth+4*fontsize) {
+		words := b.getStratum(depthIdx)
 		if diffReading(words[0], firstReadingWords[0]) < 0 {
 			firstReadingIdx = depthIdx
-			firstReadingWords = s.getStratum(firstReadingIdx)
+			firstReadingWords = b.getStratum(firstReadingIdx)
 		}
 	}
 	return firstReadingIdx
 }
 
-// getDepthIdx returns the index into `s.bins` for depth axis value `depth`.
-func (s *wordBag) getDepthIdx(depth float64) int {
-	if len(s.bins) == 0 {
+// getDepthIdx returns the index into `b.bins` for depth axis value `depth`.
+func (b *wordBag) getDepthIdx(depth float64) int {
+	if len(b.bins) == 0 {
 		panic("NOT ALLOWED")
 	}
-	indexes := s.depthIndexes()
+	indexes := b.depthIndexes()
 	depthIdx := depthIndex(depth)
 	if depthIdx < indexes[0] {
 		return indexes[0]
@@ -262,8 +262,8 @@ func (s *wordBag) getDepthIdx(depth float64) int {
 
 // empty returns true if the depth bin with index `depthIdx` is empty.
 // NOTE: We delete bins as soon as they become empty so we just have to check for the bin's existence.
-func (s *wordBag) empty(depthIdx int) bool {
-	_, ok := s.bins[depthIdx]
+func (b *wordBag) empty(depthIdx int) bool {
+	_, ok := b.bins[depthIdx]
 	return !ok
 }
 
@@ -271,8 +271,8 @@ func (s *wordBag) empty(depthIdx int) bool {
 // getStratum is guaranteed to return a non-nil value. It must be called with a valid depth index.
 // NOTE: We need to return a copy because remove() and other functions manipulate the array
 // underlying the slice.
-func (s *wordBag) getStratum(depthIdx int) []*textWord {
-	words := s.bins[depthIdx]
+func (b *wordBag) getStratum(depthIdx int) []*textWord {
+	words := b.bins[depthIdx]
 	if words == nil {
 		panic("NOT ALLOWED")
 	}
@@ -295,46 +295,24 @@ func moveWord(depthIdx int, page, para *wordBag, word *textWord) {
 	page.removeWord(depthIdx, word)
 }
 
-func (s *wordBag) allWords() []*textWord {
+func (b *wordBag) allWords() []*textWord {
 	var wordList []*textWord
-	for _, words := range s.bins {
+	for _, words := range b.bins {
 		wordList = append(wordList, words...)
 	}
 	return wordList
-}
-
-func (s *wordBag) isHomogenous(w *textWord) bool {
-	words := s.allWords()
-	words = append(words, w)
-	if len(words) == 0 {
-		return true
-	}
-	minFont := words[0].fontsize
-	maxFont := minFont
-	for _, w := range words {
-		if w.fontsize < minFont {
-			minFont = w.fontsize
-		} else if w.fontsize > maxFont {
-			maxFont = w.fontsize
-		}
-	}
-	if maxFont/minFont > 1.3 {
-		common.Log.Error("font size range: %.2f - %.2f = %.1fx", minFont, maxFont, maxFont/minFont)
-		return false
-	}
-	return true
 }
 
 // removeWord removes `word`from `s`.bins[`depthIdx`].
 // NOTE: We delete bins as soon as they become empty to save code that calls other wordBag
 // functions from having to check for empty bins.
 // !@#$ Find a more efficient way of doing this.
-func (s *wordBag) removeWord(depthIdx int, word *textWord) {
-	words := removeWord(s.getStratum(depthIdx), word)
+func (b *wordBag) removeWord(depthIdx int, word *textWord) {
+	words := removeWord(b.getStratum(depthIdx), word)
 	if len(words) == 0 {
-		delete(s.bins, depthIdx)
+		delete(b.bins, depthIdx)
 	} else {
-		s.bins[depthIdx] = words
+		b.bins[depthIdx] = words
 	}
 }
 
@@ -388,12 +366,12 @@ func mergeStratas(paras []*wordBag) []*wordBag {
 	return merged
 }
 
-// absorb combines `word` into `w`.
-func (s *wordBag) absorb(strata *wordBag) {
+// absorb combines the words from `bag` into `b`.
+func (b *wordBag) absorb(bag *wordBag) {
 	var absorbed []string
-	for depthIdx, words := range strata.bins {
+	for depthIdx, words := range bag.bins {
 		for _, word := range words {
-			moveWord(depthIdx, strata, s, word)
+			moveWord(depthIdx, bag, b, word)
 			absorbed = append(absorbed, word.text())
 		}
 	}

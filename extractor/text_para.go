@@ -35,7 +35,7 @@ type textPara struct {
 	isCell             bool
 }
 
-// newTextPara returns a textPara with the same bouding rectangle as `strata`.
+// newTextPara returns a textPara with bounding rectangle `bbox`.
 func newTextPara(bbox model.PdfRectangle) *textPara {
 	para := textPara{
 		serial:       serial.para,
@@ -206,28 +206,28 @@ func (p *textPara) fontsize() float64 {
 	return p.lines[0].fontsize
 }
 
-// composePara builds a textPara from the words in `strata`.
+// composePara builds a textPara from the words in `b`.
 // It does this by arranging the words in `strata` into lines.
-func (strata *wordBag) composePara() *textPara {
+func (b *wordBag) composePara() *textPara {
 	// Sort the words in `para`'s bins in the reading direction.
-	strata.sort()
-	para := newTextPara(strata.PdfRectangle)
+	b.sort()
+	para := newTextPara(b.PdfRectangle)
 
 	// build the lines
-	for _, depthIdx := range strata.depthIndexes() {
-		for !strata.empty(depthIdx) {
+	for _, depthIdx := range b.depthIndexes() {
+		for !b.empty(depthIdx) {
 
 			// words[0] is the leftmost word from bins near `depthIdx`.
-			firstReadingIdx := strata.firstReadingIndex(depthIdx)
+			firstReadingIdx := b.firstReadingIndex(depthIdx)
 			// create a new line
-			words := strata.getStratum(firstReadingIdx)
+			words := b.getStratum(firstReadingIdx)
 			word0 := words[0]
-			line := newTextLine(strata, firstReadingIdx)
+			line := newTextLine(b, firstReadingIdx)
 			lastWord := words[0]
 
 			// Compute the search range.
 			// This is based on word0, the first word in the `firstReadingIdx` bin.
-			fontSize := strata.fontsize
+			fontSize := b.fontsize
 			minDepth := word0.depth - lineDepthR*fontSize
 			maxDepth := word0.depth + lineDepthR*fontSize
 			maxIntraWordGap := maxIntraWordGapR * fontSize
@@ -237,8 +237,8 @@ func (strata *wordBag) composePara() *textPara {
 				// Search for `leftWord`, the left-most word w: minDepth <= w.depth <= maxDepth.
 				var leftWord *textWord
 				leftDepthIdx := 0
-				for _, depthIdx := range strata.depthBand(minDepth, maxDepth) {
-					words := strata.stratumBand(depthIdx, minDepth, maxDepth)
+				for _, depthIdx := range b.depthBand(minDepth, maxDepth) {
+					words := b.stratumBand(depthIdx, minDepth, maxDepth)
 					if len(words) == 0 {
 						continue
 					}
@@ -259,8 +259,8 @@ func (strata *wordBag) composePara() *textPara {
 					break
 				}
 
-				// remove `leftWord` from `strata`[`leftDepthIdx`], and append it to `line`.
-				line.moveWord(strata, leftDepthIdx, leftWord)
+				// remove `leftWord` from `b`[`leftDepthIdx`], and append it to `line`.
+				line.moveWord(b, leftDepthIdx, leftWord)
 				lastWord = leftWord
 				// // TODO(peterwilliams97): Replace lastWord with line.words[len(line.words)-1] ???
 				// if lastWord != line.words[len(line.words)-1] {

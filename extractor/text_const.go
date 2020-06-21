@@ -33,6 +33,11 @@ const (
 
 	// All constants that end in R are relative to font size.
 
+	maxWordAdvanceR = 0.11
+
+	maxKerningR = 0.19
+	maxLeadingR = 0.04
+
 	// Max difference in font sizes allowed within a word.
 	maxIntraWordFontTolR = 0.04
 
@@ -62,6 +67,8 @@ const (
 	// Maximum spacing between characters within a line.
 	maxIntraLineGapR = 0.02
 
+	//
+	topWordRangeR = 4.0
 	// minimum number of cells in a textTable
 	minTableParas = 6
 )

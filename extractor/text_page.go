@@ -32,6 +32,12 @@ import (
 //        dehypenation. Caller who need strong dehypenation should use NLP librarie.
 //       The "parts of lines" are an implementation detail. Line fragments are combined in
 //        paraList.writeText()
+// ALGORITHM:
+// 1) Group the textMarks into textWords based on their bounding boxes.
+// 2) Group the textWords into textParas based on their bounding boxes.
+// 3) Detect textParas arranged as cells in a table and convert each one to a textPara containing a
+//    textTable.
+// 4) Sort the textParas in reading order.
 func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraList {
 	common.Log.Trace("makeTextPage: %d elements pageSize=%.2f", len(marks), pageSize)
 
@@ -90,10 +96,10 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 			// words[0] is the leftmost word from the bins in and a few lines below `depthIdx`. We
 			// seed 'paraWords` with this word.
 			firstReadingIdx := pageWords.firstReadingIndex(depthIdx)
-			words := pageWords.getStratum(firstReadingIdx)
-			moveWord(firstReadingIdx, pageWords, paraWords, words[0])
+			firstWord := pageWords.firstWord(firstReadingIdx)
+			moveWord(firstReadingIdx, pageWords, paraWords, firstWord)
 			if verbosePage {
-				common.Log.Info("words[0]=%s", words[0].String())
+				common.Log.Info("words[0]=%s", firstWord.String())
 			}
 
 			// The following 3 numbers define whether words should be added to `paraWords`.
@@ -101,8 +107,8 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 			maxIntraReadingGap := maxIntraReadingGapR * paraWords.fontsize
 			maxIntraDepthGap := maxIntraDepthGapR * paraWords.fontsize
 
-			// Add words to `paraWords` until we pass through the following loop without a new word
-			// being added.
+			// Add words to `paraWords` until we pass through the following loop without adding a
+			// new word.
 			for running := true; running; running = changed {
 				changed = false
 
@@ -238,7 +244,8 @@ func (paras paraList) sortReadingOrder() {
 	paras.reorder(order)
 }
 
-// topoOrder returns the ordering of the topological sort of the nodes with adjacency matrix `adj`.
+// topoOrder returns the ordering of the topological sort of `paras` using readBefore() to determine
+// the incoming nodes to each node.
 func (paras paraList) topoOrder() []int {
 	if verbosePage {
 		common.Log.Info("topoOrder:")
@@ -254,7 +261,7 @@ func (paras paraList) topoOrder() []int {
 		visited[idx] = true
 		for i := 0; i < n; i++ {
 			if !visited[i] {
-				if paras.before(llyOrder, idx, i) {
+				if paras.readBefore(llyOrder, idx, i) {
 					sortNode(i)
 				}
 			}
@@ -271,8 +278,8 @@ func (paras paraList) topoOrder() []int {
 	return reversed(order)
 }
 
-// before returns true if paras[`i`] comes before paras[`j`].
-// before defines an ordering over `paras`.
+// readBefore returns true if paras[`i`] comes before paras[`j`].
+// readBefore defines an ordering over `paras`.
 // a = paras[i],  b= paras[j]
 // 1. Line segment `a` comes before line segment `b` if their ranges of x-coordinates overlap and if
 //    line segment `a` is above line segment `b` on the page.
@@ -280,7 +287,7 @@ func (paras paraList) topoOrder() []int {
 //    there does not exist a line segment `c` whose y-coordinates are between `a` and `b` and whose
 //    range of x coordinates overlaps both `a` and `b`.
 // From Thomas M. Breuel "High Performance Document Layout Analysis"
-func (paras paraList) before(ordering []int, i, j int) bool {
+func (paras paraList) readBefore(ordering []int, i, j int) bool {
 	a, b := paras[i], paras[j]
 	// Breuel's rule 1
 	if overlappedXPara(a, b) && a.Lly > b.Lly {
@@ -317,7 +324,7 @@ func overlappedXPara(r0, r1 *textPara) bool {
 	return intersectsX(r0.eBBox, r1.eBBox)
 }
 
-// llyOrdering and ordering over the indexes of `paras` sorted by Llx is increasing order.
+// llyOrdering is ordering over the indexes of `paras` sorted by Llx is increasing order.
 func (paras paraList) llyOrdering() []int {
 	ordering := make([]int, len(paras))
 	for i := range paras {

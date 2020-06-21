@@ -226,19 +226,18 @@ func (b *wordBag) depthRange(minDepthIdx, maxDepthIdx int) []int {
 	return rangeIndexes
 }
 
-// firstReadingIndex returns the index of the depth bin that starts with that word with the smallest
+// firstReadingIndex returns the index of the bin containing the left-most word near the top of `b`.
+// Precisely, this is the index of the depth bin that starts with that word with the smallest
 // reading direction value in the depth region `minDepthIndex` < depth <= minDepthIndex+ 4*fontsize
-// This avoids choosing a bin that starts with a superscript word.
+// The point of this function is to find the top-most left-most word in `b` that is not a superscript.
 func (b *wordBag) firstReadingIndex(minDepthIdx int) int {
-	firstReadingIdx := minDepthIdx
-	firstReadingWords := b.getStratum(firstReadingIdx)
-	fontsize := firstReadingWords[0].fontsize
+	fontsize := b.firstWord(minDepthIdx).fontsize
 	minDepth := float64(minDepthIdx+1) * depthBinPoints
-	for _, depthIdx := range b.depthBand(minDepth, minDepth+4*fontsize) {
-		words := b.getStratum(depthIdx)
-		if diffReading(words[0], firstReadingWords[0]) < 0 {
+	maxDepth := minDepth + topWordRangeR*fontsize
+	firstReadingIdx := minDepthIdx
+	for _, depthIdx := range b.depthBand(minDepth, maxDepth) {
+		if diffReading(b.firstWord(depthIdx), b.firstWord(firstReadingIdx)) < 0 {
 			firstReadingIdx = depthIdx
-			firstReadingWords = b.getStratum(firstReadingIdx)
 		}
 	}
 	return firstReadingIdx
@@ -265,11 +264,15 @@ func (b *wordBag) empty(depthIdx int) bool {
 	return !ok
 }
 
-// getStratum returns a copy of `p`.bins[`depthIdx`].
-// getStratum is guaranteed to return a non-nil value. It must be called with a valid depth index.
+func (b *wordBag) firstWord(depthIdx int) *textWord {
+	return b.bins[depthIdx][0]
+}
+
+// stratum returns a copy of `p`.bins[`depthIdx`].
+// stratum is guaranteed to return a non-nil value. It must be called with a valid depth index.
 // NOTE: We need to return a copy because remove() and other functions manipulate the array
 // underlying the slice.
-func (b *wordBag) getStratum(depthIdx int) []*textWord {
+func (b *wordBag) stratum(depthIdx int) []*textWord {
 	words := b.bins[depthIdx]
 	dup := make([]*textWord, len(words))
 	copy(dup, words)
@@ -278,7 +281,9 @@ func (b *wordBag) getStratum(depthIdx int) []*textWord {
 
 // moveWord moves `word` from 'page'[`depthIdx`] to 'para'[`depthIdx`].
 func moveWord(depthIdx int, page, para *wordBag, word *textWord) {
+	// !@#$ Remove this check by creating para with a PdfRectangle
 	if para.Llx > para.Urx {
+		// panic("no00000")
 		para.PdfRectangle = word.PdfRectangle
 	} else {
 		para.PdfRectangle = rectUnion(para.PdfRectangle, word.PdfRectangle)
@@ -303,7 +308,7 @@ func (b *wordBag) allWords() []*textWord {
 // functions from having to check for empty bins.
 // !@#$ Find a more efficient way of doing this.
 func (b *wordBag) removeWord(depthIdx int, word *textWord) {
-	words := removeWord(b.getStratum(depthIdx), word)
+	words := removeWord(b.stratum(depthIdx), word)
 	if len(words) == 0 {
 		delete(b.bins, depthIdx)
 	} else {

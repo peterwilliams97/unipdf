@@ -28,7 +28,7 @@ const minHyphenation = 4
 // newTextLine creates a line with font and bbox size of `w`, removes `w` from
 // p.bins[bestWordDepthIdx] and adds it to the line
 func newTextLine(p *wordBag, depthIdx int) *textLine {
-	words := p.getStratum(depthIdx)
+	words := p.stratum(depthIdx)
 	word := words[0]
 	line := textLine{
 		serial:       serial.line,

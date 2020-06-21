@@ -17,6 +17,7 @@ import (
 
 // textWord represents a word. It's a sequence of textMarks that are close enough toghether in the
 // reading direction and doesn't have any space textMarks.
+// In some cases a textWord is a fragment of a word separated by a hyphen from another fragments
 type textWord struct {
 	serial             int         // Sequence number for debugging.
 	model.PdfRectangle             // Bounding box (union of `marks` bounding boxes).
@@ -36,24 +37,10 @@ func makeTextWords(marks []*textMark, pageSize model.PdfRectangle) []*textWord {
 		common.Log.Info("makeTextWords: %d marks", len(marks))
 	}
 
-	// var a, b, c bool
-	var readingGap float64
-
-	// biggest := &textWord{}
-
 	// addNewWord adds `newWord` to `words` and resets `newWord` to nil.
 	addNewWord := func() {
 		if newWord != nil {
 			if !isTextSpace(newWord.text()) {
-				// extra := ""
-				// if area(newWord) > area(biggest) {
-				// 	biggest = newWord
-				// 	extra = fmt.Sprintf(" XXX %.2f", area(newWord))
-				// }
-				// common.Log.Info("%5t %5t %5t %s%s", a, b, c, newWord.String(), extra)
-				// // for i, tm := range newWord.marks {
-				// // 	fmt.Printf("%4d: %s\n", i, tm.String())
-				// // }
 				words = append(words, newWord)
 			}
 			newWord = nil
@@ -61,7 +48,6 @@ func makeTextWords(marks []*textMark, pageSize model.PdfRectangle) []*textWord {
 	}
 
 	for _, tm := range marks {
-		// a, b, c = false, false, false
 		isSpace := isTextSpace(tm.text)
 		if newWord == nil && !isSpace {
 			newWord = newTextWord([]*textMark{tm}, pageSize)
@@ -72,28 +58,19 @@ func makeTextWords(marks []*textMark, pageSize model.PdfRectangle) []*textWord {
 			continue
 		}
 
-		depthGap := getDepth(pageSize, tm) - newWord.depth
-		readingGap = gapReading(tm, newWord)
-
 		fontsize := newWord.fontsize
+		depthGap := math.Abs(getDepth(pageSize, tm)-newWord.depth) / fontsize
+		readingGap := gapReading(tm, newWord) / fontsize
 
 		// These are the conditions for `tm` to be from a new word.
-		// - Change in reading position is larger than a space which we guess to be 0.11*fontsize.
+		// - Gap between words in reading position is larger than a space.
 		// - Change in reading position is too negative to be just a kerning adjustment.
 		// - Change in depth is too large to be just a leading adjustment.
-		sameWord := -0.19*fontsize <= readingGap && readingGap <= 0.11*fontsize &&
-			math.Abs(depthGap) <= 0.04*fontsize
-		// a = -0.19*fontsize <= readingGap
-		// b = readingGap <= 0.11*fontsize
-		// c = math.Abs(depthGap) <= 0.04*fontsize
-		if !sameWord {
-			// common.Log.Info("gap=%.2f word=%.2f tm=%.2f", readingGap,
-			// 	newWord.PdfRectangle, tm.PdfRectangle)
+		if readingGap >= maxWordAdvanceR || !(-maxKerningR <= readingGap && depthGap <= maxLeadingR) {
 			addNewWord()
 			newWord = newTextWord([]*textMark{tm}, pageSize)
 			continue
 		}
-
 		newWord.addMark(tm, pageSize)
 	}
 	addNewWord()
@@ -111,13 +88,12 @@ func newTextWord(marks []*textMark, pageSize model.PdfRectangle) *textWord {
 			fontsize = tm.fontsize
 		}
 	}
-	depth := pageSize.Ury - r.Lly
 
 	word := textWord{
 		serial:       serial.word,
 		PdfRectangle: r,
 		marks:        marks,
-		depth:        depth,
+		depth:        pageSize.Ury - r.Lly,
 		fontsize:     fontsize,
 	}
 	serial.word++

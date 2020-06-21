@@ -200,23 +200,22 @@ func (b *wordBag) composePara() *textPara {
 	b.sort()
 	para := newTextPara(b.PdfRectangle)
 
-	// build the lines
+	// Build the lines by iterating through the words from top to bottom.
+	// In the current implementation, we do this by emptying the word bins in increasing depth order.
 	for _, depthIdx := range b.depthIndexes() {
 		for !b.empty(depthIdx) {
 
-			// words[0] is the leftmost word from bins near `depthIdx`.
+			// firstWord is the left-most word near the top of the bin with index `depthIdx`. As we
+			// are scanning down `b`, this is the  left-most word near the top of the `b`
 			firstReadingIdx := b.firstReadingIndex(depthIdx)
-			// create a new line
-			words := b.getStratum(firstReadingIdx)
-			word0 := words[0]
+			firstWord := b.firstWord(firstReadingIdx)
+			// Create a new line.
 			line := newTextLine(b, firstReadingIdx)
-			lastWord := words[0]
 
-			// Compute the search range.
-			// This is based on word0, the first word in the `firstReadingIdx` bin.
+			// Compute the search range based on firstWord.
 			fontSize := b.fontsize
-			minDepth := word0.depth - lineDepthR*fontSize
-			maxDepth := word0.depth + lineDepthR*fontSize
+			minDepth := firstWord.depth - lineDepthR*fontSize
+			maxDepth := firstWord.depth + lineDepthR*fontSize
 			maxIntraWordGap := maxIntraWordGapR * fontSize
 
 		remainingWords: // Find the rest of the words in this line.
@@ -230,7 +229,7 @@ func (b *wordBag) composePara() *textPara {
 						continue
 					}
 					word := words[0]
-					gap := gapReading(word, lastWord)
+					gap := gapReading(word, line.words[len(line.words)-1])
 					if gap < -maxIntraLineOverlapR*fontSize {
 						break remainingWords
 					}
@@ -248,7 +247,6 @@ func (b *wordBag) composePara() *textPara {
 
 				// remove `leftWord` from `b`[`leftDepthIdx`], and append it to `line`.
 				line.moveWord(b, leftDepthIdx, leftWord)
-				lastWord = leftWord
 			}
 
 			line.mergeWordFragments()

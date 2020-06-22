@@ -100,7 +100,7 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 			firstReadingIdx := pageWords.firstReadingIndex(depthIdx)
 			firstWord := pageWords.firstWord(firstReadingIdx)
 			paraWords := newWordBag(firstWord, pageHeight)
-			pageWords.removeWord(firstReadingIdx, firstWord)
+			pageWords.removeWord(firstWord, firstReadingIdx)
 			if verbosePage {
 				common.Log.Info("words[0]=%s", firstWord.String())
 			}

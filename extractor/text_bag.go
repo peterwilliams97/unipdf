@@ -145,7 +145,7 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 			}
 
 			if !detectOnly {
-				para.pullWord(b, depthIdx, word)
+				para.pullWord(b, word, depthIdx)
 			}
 			newWords = append(newWords, word)
 			n++
@@ -195,9 +195,10 @@ func (b *wordBag) text() string {
 	return strings.Join(texts, " ")
 }
 
-// stratumBand returns the words in b.bins[depthIdx] w: minDepth <= w.depth <= maxDepth.
-func (b *wordBag) stratumWord(depthIdx int, minDepth, maxDepth float64) *textWord {
+// highestword returns the hight word in b.bins[depthIdx] w: minDepth <= w.depth <= maxDepth.
+func (b *wordBag) highestword(depthIdx int, minDepth, maxDepth float64) *textWord {
 	if len(b.bins) == 0 {
+		panic("bbbin")
 		return nil
 	}
 	for _, word := range b.bins[depthIdx] {
@@ -284,13 +285,13 @@ func (b *wordBag) stratum(depthIdx int) []*textWord {
 
 // pullWord adds `word` to `b` and removes it from `other`.
 // `depthIdx` is the depth index of `word` in all wordBags.
-func (b *wordBag) pullWord(other *wordBag, depthIdx int, word *textWord) {
+func (b *wordBag) pullWord(other *wordBag, word *textWord, depthIdx int) {
 	b.PdfRectangle = rectUnion(b.PdfRectangle, word.PdfRectangle)
 	if word.fontsize > b.fontsize {
 		b.fontsize = word.fontsize
 	}
 	b.bins[depthIdx] = append(b.bins[depthIdx], word)
-	other.removeWord(depthIdx, word)
+	other.removeWord(word, depthIdx)
 }
 
 func (b *wordBag) allWords() []*textWord {
@@ -306,7 +307,7 @@ func (b *wordBag) allWords() []*textWord {
 // NOTE: We delete bins as soon as they become empty to save code that calls other wordBag
 // functions from having to check for empty bins.
 // TODO(peterwilliams97): Find a more efficient way of doing this.
-func (b *wordBag) removeWord(depthIdx int, word *textWord) {
+func (b *wordBag) removeWord(word *textWord, depthIdx int) {
 	words := removeWord(b.stratum(depthIdx), word)
 	if len(words) == 0 {
 		delete(b.bins, depthIdx)
@@ -368,7 +369,7 @@ func mergWordBags(paras []*wordBag) []*wordBag {
 func (b *wordBag) absorb(bag *wordBag) {
 	for depthIdx, words := range bag.bins {
 		for _, word := range words {
-			b.pullWord(bag, depthIdx, word)
+			b.pullWord(bag, word, depthIdx)
 		}
 	}
 }

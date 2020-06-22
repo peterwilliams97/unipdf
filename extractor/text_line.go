@@ -22,11 +22,10 @@ type textLine struct {
 	fontsize           float64     // Largest word font size.
 }
 
-// newTextLine creates a line with font and bbox size of `w`, removes `w` from
-// p.bins[bestWordDepthIdx] and adds it to the line
-func newTextLine(p *wordBag, depthIdx int) *textLine {
-	words := p.stratum(depthIdx)
-	word := words[0]
+// newTextLine creates a line with font and bbox size of the frist word in `b`, remove the word from
+// `b` and adds it to the line.
+func newTextLine(b *wordBag, depthIdx int) *textLine {
+	word := b.firstWord(depthIdx)
 	line := textLine{
 		serial:       serial.line,
 		PdfRectangle: word.PdfRectangle,
@@ -34,7 +33,7 @@ func newTextLine(p *wordBag, depthIdx int) *textLine {
 		depth:        word.depth,
 	}
 	serial.line++
-	line.pullWord(p, depthIdx, word)
+	line.pullWord(b, word, depthIdx)
 	return &line
 }
 
@@ -76,14 +75,14 @@ func (l *textLine) toTextMarks(offset *int) []TextMark {
 }
 
 // pullWord removes `word` from bag and appends it to `l`.
-func (l *textLine) pullWord(bag *wordBag, depthIdx int, word *textWord) {
+func (l *textLine) pullWord(bag *wordBag, word *textWord, depthIdx int) {
 	l.appendWord(word)
-	bag.removeWord(depthIdx, word)
+	bag.removeWord(word, depthIdx)
 }
 
 // appendWord appends `word` to `l`.
-// `l.PdfRectangle` is increased to bound the new word
-// `l.fontsize` is the largest of the fontsizes of the words in line
+// `l.PdfRectangle` is increased to bound the new word.
+// `l.fontsize` is the largest of the fontsizes of the words in line.
 func (l *textLine) appendWord(word *textWord) {
 	l.words = append(l.words, word)
 	l.PdfRectangle = rectUnion(l.PdfRectangle, word.PdfRectangle)
@@ -95,7 +94,7 @@ func (l *textLine) appendWord(word *textWord) {
 	}
 }
 
-// markWordBoundaries marks the word fragments that are new words.
+// markWordBoundaries marks the word fragments that are the first fragments in whole words.
 func (l *textLine) markWordBoundaries() {
 	maxGap := maxIntraLineGapR * l.fontsize
 	for i, w := range l.words[1:] {

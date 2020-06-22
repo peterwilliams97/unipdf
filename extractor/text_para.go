@@ -196,7 +196,7 @@ func (p *textPara) fontsize() float64 {
 
 // arrangeText arranges the word fragments (textWords) in `b` into lines and words.
 // The lines are groups of textWords of similar depths.
-// The textWords in each line are sorted in reading order and those that start actual words (as
+// The textWords in each line are sorted in reading order and those that start whole words (as
 // opposed to word fragments) have their `newWord` flag set to true.
 func (b *wordBag) arrangeText() *textPara {
 	// Sort the words in `b`'s bins in the reading direction.
@@ -222,34 +222,37 @@ func (b *wordBag) arrangeText() *textPara {
 			maxIntraWordGap := maxIntraWordGapR * b.fontsize
 			maxIntraLineOverlap := maxIntraLineOverlapR * b.fontsize
 
-		remainingWords: // Find the rest of the words in this line.
+			// Find the rest of the words in the line that starts with `firstWord`
+			// Search down from `minDepth`, half a line above `firstWord` to `maxDepth`, half a line
+			// below `firstWord` for the leftmost word to the right of the last word in `line`.
+		remainingWords:
 			for {
-				// Search for `leftWord`, the left-most word w: minDepth <= w.depth <= maxDepth.
-				var leftWord *textWord
-				leftDepthIdx := 0
+				var nextWord *textWord // The next word to add to `line` if there is one.
+				nextDepthIdx := 0      // nextWord's depthIndex
+				// We start with this highest remaining word
 				for _, depthIdx := range b.depthBand(minDepth, maxDepth) {
-					word := b.stratumWord(depthIdx, minDepth, maxDepth)
+					word := b.highestword(depthIdx, minDepth, maxDepth)
 					if word == nil {
 						continue
 					}
 					gap := gapReading(word, line.words[len(line.words)-1])
-					if gap < -maxIntraLineOverlap {
+					if gap < -maxIntraLineOverlap { // Reverted too far to left. Can't be same line.
 						break remainingWords
 					}
-					// No `leftWord` or `word` to the left of `leftWord`.
-					if gap < maxIntraWordGap {
-						if leftWord == nil || diffReading(word, leftWord) < 0 {
-							leftDepthIdx = depthIdx
-							leftWord = word
-						}
+					if gap > maxIntraWordGap { // Advanced too far too right. Might not be same line.
+						continue
 					}
+					if nextWord != nil && diffReading(word, nextWord) >= 0 { // Not leftmost world
+						continue
+					}
+					nextWord = word
+					nextDepthIdx = depthIdx
 				}
-				if leftWord == nil {
+				if nextWord == nil { // No more words in this line.
 					break
 				}
-
-				// remove `leftWord` from `b` and append it to `line`.
-				line.pullWord(b, leftDepthIdx, leftWord)
+				// remove `nextWord` from `b` and append it to `line`.
+				line.pullWord(b, nextWord, nextDepthIdx)
 			}
 
 			line.markWordBoundaries()

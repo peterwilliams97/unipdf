@@ -40,11 +40,17 @@ import (
 // 4) Sort the textParas in reading order.
 func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraList {
 	common.Log.Trace("makeTextPage: %d elements pageSize=%.2f", len(marks), pageSize)
+	if len(marks) == 0 {
+		return nil
+	}
 
 	// Group the marks into words.
 	words := makeTextWords(marks, pageSize)
+	if len(words) == 0 {
+		return nil
+	}
 
-	// Put the words into a container that faciitates the following grouping of words into paragraphs.
+	// Put the words into a container that facilitates the grouping of words into paragraphs.
 	pageWords := makeWordBag(words, pageSize.Ury)
 
 	// Divide the page into rectangular regions for each paragraph and creata a wordBag for each one.
@@ -57,7 +63,7 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 		paras[i] = para.composePara()
 	}
 
-	// Find paras that are cells in tables and conver the tables to paras to replace the cells.
+	// Find paras that are cells in tables, convert the tables to paras and remove the cell paras.
 	if len(paras) >= minTableParas {
 		paras = paras.extractTables()
 	}
@@ -69,7 +75,7 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	return paras
 }
 
-// dividePage divides `pageWords` into a list of paragraph wordBags.
+// dividePage divides `pageWords`, the page wordBag, into a list of paragraph wordBags.
 func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 	var paraWordBags []*wordBag
 
@@ -81,9 +87,6 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 	// Some bins are emptied before they iterated to (seee "surving bin" above).
 	// If a `page` survives until it is iterated to then at least one `para` will be built around it.
 
-	if verbosePage {
-		common.Log.Info("dividePage")
-	}
 	cnt := 0
 	for _, depthIdx := range pageWords.depthIndexes() {
 		changed := false
@@ -91,13 +94,13 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 			// Start a new paragraph region `para`.
 			// Build `paraWords` out from the left-most (lowest in reading direction) word `words`[0],
 			// in the bins in and below `depthIdx`.
-			paraWords := newWordBag(pageHeight)
 
-			// words[0] is the leftmost word from the bins in and a few lines below `depthIdx`. We
+			// `firstWord` is the left-most word from the bins in and a few lines below `depthIdx`. We
 			// seed 'paraWords` with this word.
 			firstReadingIdx := pageWords.firstReadingIndex(depthIdx)
 			firstWord := pageWords.firstWord(firstReadingIdx)
-			moveWord(firstReadingIdx, pageWords, paraWords, firstWord)
+			paraWords := newWordBag(firstWord, pageHeight)
+			pageWords.removeWord(firstReadingIdx, firstWord)
 			if verbosePage {
 				common.Log.Info("words[0]=%s", firstWord.String())
 			}
@@ -130,7 +133,7 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 					maxIntraReadingFontTol, false, false) > 0 {
 					changed = true
 				}
-				// The above stretching has got as far as it go. Repeating it won't pull in more words.
+				// The above stretching has got as far as it can go. Repeating it won't pull in more words.
 
 				// Only try to combine other words if we can't grow paraWords in the simple way above.
 				if changed {

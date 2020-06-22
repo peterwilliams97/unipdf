@@ -27,9 +27,10 @@ type wordBag struct {
 
 // makeWordBag builds a wordBag from `words` by putting the words into the appropriate
 // depth bins.
+// Caller must check that `words` has at least one element.
 func makeWordBag(words []*textWord, pageHeight float64) *wordBag {
-	b := newWordBag(pageHeight)
-	for _, w := range words {
+	b := newWordBag(words[0], pageHeight)
+	for _, w := range words[1:] {
 		depthIdx := depthIndex(w.depth)
 		b.bins[depthIdx] = append(b.bins[depthIdx], w)
 	}
@@ -37,19 +38,22 @@ func makeWordBag(words []*textWord, pageHeight float64) *wordBag {
 	return b
 }
 
-// newWordBag returns an empty wordBag with page height `pageHeight`.
-func newWordBag(pageHeight float64) *wordBag {
+// newWordBag returns a wordBag with page height `pageHeight` with the single word `word`.
+func newWordBag(word *textWord, pageHeight float64) *wordBag {
+	depthIdx := depthIndex(word.depth)
+	words := []*textWord{word}
 	bag := wordBag{
 		serial:       serial.wordBag,
-		bins:         map[int][]*textWord{},
-		PdfRectangle: model.PdfRectangle{Urx: -1.0, Ury: -1.0},
+		bins:         map[int][]*textWord{depthIdx: words},
+		PdfRectangle: word.PdfRectangle,
+		fontsize:     word.fontsize,
 		pageHeight:   pageHeight,
 	}
 	serial.wordBag++
 	return &bag
 }
 
-// String returns a description of `s`.
+// String returns a description of `b`.
 func (b *wordBag) String() string {
 	var texts []string
 	for _, depthIdx := range b.depthIndexes() {
@@ -62,19 +66,19 @@ func (b *wordBag) String() string {
 		b.serial, b.PdfRectangle, b.fontsize, len(texts), texts)
 }
 
-// sort sorts the words in each bin in `s` in the reading direction.
+// sort sorts the words in each bin in `b` in the reading direction.
 func (b *wordBag) sort() {
 	for _, bin := range b.bins {
 		sort.Slice(bin, func(i, j int) bool { return diffReading(bin[i], bin[j]) < 0 })
 	}
 }
 
-// minDepth returns the minimum depth that words in `s` touch.
+// minDepth returns the minimum depth that words in `b` touch.
 func (b *wordBag) minDepth() float64 {
 	return b.pageHeight - (b.Ury - b.fontsize)
 }
 
-// maxDepth returns the maximum depth that words in `s` touch.
+// maxDepth returns the maximum depth that words in `b` touch.
 func (b *wordBag) maxDepth() float64 {
 	return b.pageHeight - b.Lly
 }
@@ -141,7 +145,7 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 			}
 
 			if !detectOnly {
-				moveWord(depthIdx, b, para, word)
+				para.pullWord(b, depthIdx, word)
 			}
 			newWords = append(newWords, word)
 			n++
@@ -279,20 +283,15 @@ func (b *wordBag) stratum(depthIdx int) []*textWord {
 	return dup
 }
 
-// moveWord moves `word` from 'page'[`depthIdx`] to 'para'[`depthIdx`].
-func moveWord(depthIdx int, page, para *wordBag, word *textWord) {
-	// !@#$ Remove this check by creating para with a PdfRectangle
-	if para.Llx > para.Urx {
-		// panic("no00000")
-		para.PdfRectangle = word.PdfRectangle
-	} else {
-		para.PdfRectangle = rectUnion(para.PdfRectangle, word.PdfRectangle)
+// pullWord adds `word` to `b` and removes it from `other`.
+// `depthIdx` is the depth index of `word` in all wordBags.
+func (b *wordBag) pullWord(other *wordBag, depthIdx int, word *textWord) {
+	b.PdfRectangle = rectUnion(b.PdfRectangle, word.PdfRectangle)
+	if word.fontsize > b.fontsize {
+		b.fontsize = word.fontsize
 	}
-	if word.fontsize > para.fontsize {
-		para.fontsize = word.fontsize
-	}
-	para.bins[depthIdx] = append(para.bins[depthIdx], word)
-	page.removeWord(depthIdx, word)
+	b.bins[depthIdx] = append(b.bins[depthIdx], word)
+	other.removeWord(depthIdx, word)
 }
 
 func (b *wordBag) allWords() []*textWord {
@@ -303,10 +302,11 @@ func (b *wordBag) allWords() []*textWord {
 	return wordList
 }
 
-// removeWord removes `word`from `s`.bins[`depthIdx`].
+// removeWord removes `word`from `b`.
+// In the current implementation it  removes `word`from `b`.bins[`depthIdx`].
 // NOTE: We delete bins as soon as they become empty to save code that calls other wordBag
 // functions from having to check for empty bins.
-// !@#$ Find a more efficient way of doing this.
+// TODO(peterwilliams97): Find a more efficient way of doing this.
 func (b *wordBag) removeWord(depthIdx int, word *textWord) {
 	words := removeWord(b.stratum(depthIdx), word)
 	if len(words) == 0 {
@@ -370,7 +370,7 @@ func (b *wordBag) absorb(bag *wordBag) {
 	var absorbed []string
 	for depthIdx, words := range bag.bins {
 		for _, word := range words {
-			moveWord(depthIdx, bag, b, word)
+			b.pullWord(bag, depthIdx, word)
 			absorbed = append(absorbed, word.text())
 		}
 	}

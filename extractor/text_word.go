@@ -15,16 +15,18 @@ import (
 	"github.com/unidoc/unipdf/v3/model"
 )
 
-// textWord represents a word. It's a sequence of textMarks that are close enough toghether in the
-// reading direction and doesn't have any space textMarks.
-// In some cases a textWord is a fragment of a word separated by a hyphen from another fragments
+// textWord represents a word fragment.
+// makeTextWords() shows how textWords are created.
+// textWords are eventually sorted into textLines in textParas
+//  - A textLine is the textWords at similar depths sorted in reading order.
+//  - To find the words, scan the textWords in the line and start a new word every time word.newWord
 type textWord struct {
 	serial             int         // Sequence number for debugging.
 	model.PdfRectangle             // Bounding box (union of `marks` bounding boxes).
-	depth              float64     // Distance from bottom of word to top of page.
+	depth              float64     // Distance from bottom of this word to the top of the page.
 	marks              []*textMark // Marks in this word.
-	fontsize           float64     // Largest fontsize in `marks`
-	spaceAfter         bool        // Is this word followed by a space?
+	fontsize           float64     // Largest fontsize in `marks`.
+	newWord            bool        // Is this word fragemet the start of  a new word?
 }
 
 // makeTextPage combines `marks`, the textMarks on a page, into word fragments.

@@ -52,14 +52,14 @@ func (l *textLine) bbox() model.PdfRectangle {
 	return l.PdfRectangle
 }
 
-// text returns the extracted text contained in line..
+// text returns the extracted text contained in line.
 func (l *textLine) text() string {
 	var words []string
 	for _, w := range l.words {
-		words = append(words, w.text())
-		if w.spaceAfter {
+		if w.newWord {
 			words = append(words, " ")
 		}
+		words = append(words, w.text())
 	}
 	return strings.Join(words, "")
 }
@@ -68,24 +68,25 @@ func (l *textLine) text() string {
 // `offset` is used to give the TextMarks the correct Offset values.
 func (l *textLine) toTextMarks(offset *int) []TextMark {
 	var marks []TextMark
-	for _, word := range l.words {
-		wordMarks := word.toTextMarks(offset)
-		marks = append(marks, wordMarks...)
-		if word.spaceAfter {
+	for _, w := range l.words {
+		if w.newWord {
 			marks = appendSpaceMark(marks, offset, " ")
 		}
+		wordMarks := w.toTextMarks(offset)
+		marks = append(marks, wordMarks...)
 	}
 	return marks
 }
 
-// moveWord removes `word` from bag.bins[bestWordDepthIdx] and adds it to `l`.
-// `l.PdfRectangle` is increased to bound the new word
-// `l.fontsize` is the largest of the fontsizes of the words in line
+// moveWord removes `word` from bag and appends it to `l`.
 func (l *textLine) moveWord(bag *wordBag, depthIdx int, word *textWord) {
 	l.appendWord(word)
 	bag.removeWord(depthIdx, word)
 }
 
+// appendWord appends `word` to `l`.
+// `l.PdfRectangle` is increased to bound the new word
+// `l.fontsize` is the largest of the fontsizes of the words in line
 func (l *textLine) appendWord(word *textWord) {
 	l.words = append(l.words, word)
 	l.PdfRectangle = rectUnion(l.PdfRectangle, word.PdfRectangle)
@@ -97,22 +98,14 @@ func (l *textLine) appendWord(word *textWord) {
 	}
 }
 
-// mergeWordFragments merges the word fragments in the words in `l`.
-func (l *textLine) mergeWordFragments() {
-	if len(l.words) < 1 {
-		return
-	}
-
+// markWordBoundaries marks the word fragments that are new words.
+func (l *textLine) markWordBoundaries() {
 	maxGap := maxIntraLineGapR * l.fontsize
-
-	merged := []*textWord{l.words[0]}
-	for _, word := range l.words[1:] {
-		if gapReading(word, merged[len(merged)-1]) >= maxGap {
-			merged[len(merged)-1].spaceAfter = true
+	for i, w := range l.words[1:] {
+		if gapReading(w, l.words[i]) >= maxGap {
+			w.newWord = true
 		}
-		merged = append(merged, word)
 	}
-	l.words = merged
 
 	// check for hyphen at end of line
 	l.hyphenated = isHyphenated(l.text())

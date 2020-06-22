@@ -249,7 +249,7 @@ func (b *wordBag) composePara() *textPara {
 				line.moveWord(b, leftDepthIdx, leftWord)
 			}
 
-			line.mergeWordFragments()
+			line.markWordBoundaries()
 			// add the line
 			para.lines = append(para.lines, line)
 		}

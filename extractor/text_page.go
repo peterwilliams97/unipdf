@@ -57,10 +57,10 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle, rot int) paraL
 	paraWords := dividePage(pageWords, pageSize.Ury)
 	paraWords = mergWordBags(paraWords)
 
-	// Arrange the contents of each para into lines
+	// Arrange the contents of each para into lines and the lines into words.
 	paras := make(paraList, len(paraWords))
 	for i, para := range paraWords {
-		paras[i] = para.composePara()
+		paras[i] = para.arrangeText()
 	}
 
 	// Find paras that are cells in tables, convert the tables to paras and remove the cell paras.

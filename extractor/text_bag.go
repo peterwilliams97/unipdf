@@ -196,17 +196,16 @@ func (b *wordBag) text() string {
 }
 
 // stratumBand returns the words in b.bins[depthIdx] w: minDepth <= w.depth <= maxDepth.
-func (b *wordBag) stratumBand(depthIdx int, minDepth, maxDepth float64) []*textWord {
+func (b *wordBag) stratumWord(depthIdx int, minDepth, maxDepth float64) *textWord {
 	if len(b.bins) == 0 {
 		return nil
 	}
-	var words []*textWord
 	for _, word := range b.bins[depthIdx] {
 		if minDepth <= word.depth && word.depth <= maxDepth {
-			words = append(words, word)
+			return word
 		}
 	}
-	return words
+	return nil
 }
 
 // depthBand returns the indexes of the bins with depth: `minDepth` <= depth <= `maxDepth`.

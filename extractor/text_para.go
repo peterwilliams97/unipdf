@@ -36,11 +36,12 @@ type textPara struct {
 	below *textPara
 }
 
-// newTextPara returns a textPara with bounding rectangle `bbox`.
-func newTextPara(bbox model.PdfRectangle) *textPara {
+// makeTextPara returns a textPara with bounding rectangle `bbox`.
+func makeTextPara(bbox model.PdfRectangle, lines []*textLine) *textPara {
 	para := textPara{
 		serial:       serial.para,
 		PdfRectangle: bbox,
+		lines:        lines,
 	}
 	serial.para++
 	return &para
@@ -193,12 +194,15 @@ func (p *textPara) fontsize() float64 {
 	return p.lines[0].fontsize
 }
 
-// composePara builds a textPara from the words in `b`.
-// It does this by arranging the words in `b` into lines.
-func (b *wordBag) composePara() *textPara {
-	// Sort the words in `para`'s bins in the reading direction.
+// arrangeText arranges the word fragments (textWords) in `b` into lines and words.
+// The lines are groups of textWords of similar depths.
+// The textWords in each line are sorted in reading order and those that start actual words (as
+// opposed to word fragments) have their `newWord` flag set to true.
+func (b *wordBag) arrangeText() *textPara {
+	// Sort the words in `b`'s bins in the reading direction.
 	b.sort()
-	para := newTextPara(b.PdfRectangle)
+
+	var lines []*textLine
 
 	// Build the lines by iterating through the words from top to bottom.
 	// In the current implementation, we do this by emptying the word bins in increasing depth order.
@@ -212,11 +216,11 @@ func (b *wordBag) composePara() *textPara {
 			// Create a new line.
 			line := newTextLine(b, firstReadingIdx)
 
-			// Compute the search range based on firstWord.
-			fontSize := b.fontsize
-			minDepth := firstWord.depth - lineDepthR*fontSize
-			maxDepth := firstWord.depth + lineDepthR*fontSize
-			maxIntraWordGap := maxIntraWordGapR * fontSize
+			// Compute the search range based on `b` first word fontsize
+			minDepth := firstWord.depth - lineDepthR*b.fontsize
+			maxDepth := firstWord.depth + lineDepthR*b.fontsize
+			maxIntraWordGap := maxIntraWordGapR * b.fontsize
+			maxIntraLineOverlap := maxIntraLineOverlapR * b.fontsize
 
 		remainingWords: // Find the rest of the words in this line.
 			for {
@@ -224,13 +228,12 @@ func (b *wordBag) composePara() *textPara {
 				var leftWord *textWord
 				leftDepthIdx := 0
 				for _, depthIdx := range b.depthBand(minDepth, maxDepth) {
-					words := b.stratumBand(depthIdx, minDepth, maxDepth)
-					if len(words) == 0 {
+					word := b.stratumWord(depthIdx, minDepth, maxDepth)
+					if word == nil {
 						continue
 					}
-					word := words[0]
 					gap := gapReading(word, line.words[len(line.words)-1])
-					if gap < -maxIntraLineOverlapR*fontSize {
+					if gap < -maxIntraLineOverlap {
 						break remainingWords
 					}
 					// No `leftWord` or `word` to the left of `leftWord`.
@@ -245,19 +248,21 @@ func (b *wordBag) composePara() *textPara {
 					break
 				}
 
-				// remove `leftWord` from `b`[`leftDepthIdx`], and append it to `line`.
-				line.moveWord(b, leftDepthIdx, leftWord)
+				// remove `leftWord` from `b` and append it to `line`.
+				line.pullWord(b, leftDepthIdx, leftWord)
 			}
 
 			line.markWordBoundaries()
-			// add the line
-			para.lines = append(para.lines, line)
+			lines = append(lines, line)
+
 		}
 	}
 
-	sort.Slice(para.lines, func(i, j int) bool {
-		return diffDepthReading(para.lines[i], para.lines[j]) < 0
+	sort.Slice(lines, func(i, j int) bool {
+		return diffDepthReading(lines[i], lines[j]) < 0
 	})
+
+	para := makeTextPara(b.PdfRectangle, lines)
 
 	if verbosePara {
 		common.Log.Info("!!! para=%s", para.String())

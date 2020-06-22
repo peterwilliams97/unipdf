@@ -34,7 +34,7 @@ func newTextLine(p *wordBag, depthIdx int) *textLine {
 		depth:        word.depth,
 	}
 	serial.line++
-	line.moveWord(p, depthIdx, word)
+	line.pullWord(p, depthIdx, word)
 	return &line
 }
 
@@ -75,8 +75,8 @@ func (l *textLine) toTextMarks(offset *int) []TextMark {
 	return marks
 }
 
-// moveWord removes `word` from bag and appends it to `l`.
-func (l *textLine) moveWord(bag *wordBag, depthIdx int, word *textWord) {
+// pullWord removes `word` from bag and appends it to `l`.
+func (l *textLine) pullWord(bag *wordBag, depthIdx int, word *textWord) {
 	l.appendWord(word)
 	bag.removeWord(depthIdx, word)
 }

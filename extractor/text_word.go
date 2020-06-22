@@ -16,9 +16,9 @@ import (
 
 // textWord represents a word fragment.
 // makeTextWords() shows how textWords are created.
-// textWords are eventually sorted into textLines in textParas
+// textWords are eventually sorted into textLines in textParas.
 //  - A textLine is the textWords at similar depths sorted in reading order.
-//  - To find the words, scan the textWords in the line and start a new word every time word.newWord
+//  - All textWords, w, in the textLine that start actua words have w.newWord = true
 type textWord struct {
 	serial             int     // Sequence number for debugging.
 	model.PdfRectangle         // Bounding box (union of `marks` bounding boxes).

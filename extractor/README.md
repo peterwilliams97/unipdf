@@ -40,9 +40,9 @@ HOW TEXT IS EXTRACTED
 * The words in each `textPara` are arranged into`textLine`s.
 
 
-### `textWord` creation
+### `textWord` discovery
 
-`makeTextWords()` combines `textMark`s into `textWords`
+`makeTextWords()` combines `textMark`s into `textWord`s.
 
 TODO
 ====

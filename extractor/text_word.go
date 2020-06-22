@@ -23,19 +23,24 @@ type textWord struct {
 	model.PdfRectangle             // Bounding box (union of `marks` bounding boxes).
 	depth              float64     // Distance from bottom of word to top of page.
 	marks              []*textMark // Marks in this word.
-	fontsize           float64     // Largest fontsize in `marks` w
+	fontsize           float64     // Largest fontsize in `marks`
 	spaceAfter         bool        // Is this word followed by a space?
 }
 
-// makeTextPage builds a word list from `marks`, the textMarks on a page.
+// makeTextPage combines `marks`, the textMarks on a page, into word fragments.
 // `pageSize` is used to calculate the words` depths depth on the page.
+// Algorithm:
+//  1. `marks` are in the order they were rendered in the PDF.
+//  2. Successive marks are combined into a word unless
+//      One mark is a space character.
+//      They are separated by more than maxWordAdvanceR*fontsize in the reading direction
+//      They are not within the location allowed by horizontal and vertical variations allowed by
+//       reasonable kerning and leading.
+// TODO(peterwilliams97): Check for overlapping textWords for cases such as diacritics, bolding by
+//                       repeating and others.
 func makeTextWords(marks []*textMark, pageSize model.PdfRectangle) []*textWord {
-	var words []*textWord
+	var words []*textWord // The words.
 	var newWord *textWord // The word being built.
-
-	if verbose {
-		common.Log.Info("makeTextWords: %d marks", len(marks))
-	}
 
 	// addNewWord adds `newWord` to `words` and resets `newWord` to nil.
 	addNewWord := func() {

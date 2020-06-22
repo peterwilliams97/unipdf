@@ -99,20 +99,20 @@ func (l *textLine) appendWord(word *textWord) {
 
 // mergeWordFragments merges the word fragments in the words in `l`.
 func (l *textLine) mergeWordFragments() {
-	fontsize := l.fontsize
-	if len(l.words) > 1 {
-		maxGap := maxIntraLineGapR * fontsize
-		merged := []*textWord{l.words[0]}
-
-		for _, word := range l.words[1:] {
-			lastMerged := merged[len(merged)-1]
-			if gapReading(word, lastMerged) >= maxGap {
-				lastMerged.spaceAfter = true
-			}
-			merged = append(merged, word)
-		}
-		l.words = merged
+	if len(l.words) < 1 {
+		return
 	}
+
+	maxGap := maxIntraLineGapR * l.fontsize
+
+	merged := []*textWord{l.words[0]}
+	for _, word := range l.words[1:] {
+		if gapReading(word, merged[len(merged)-1]) >= maxGap {
+			merged[len(merged)-1].spaceAfter = true
+		}
+		merged = append(merged, word)
+	}
+	l.words = merged
 
 	// check for hyphen at end of line
 	l.hyphenated = isHyphenated(l.text())

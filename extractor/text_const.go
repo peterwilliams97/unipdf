@@ -67,6 +67,8 @@ const (
 	// Maximum spacing between characters within a line.
 	maxIntraLineGapR = 0.02
 
+	minHyphenation = 4
+
 	//
 	topWordRangeR = 4.0
 	// minimum number of cells in a textTable

@@ -121,7 +121,7 @@ func (p *textPara) toTextMarks(offset *int) []TextMark {
 func (p *textPara) writeCellText(w io.Writer) {
 	for il, line := range p.lines {
 		lineText := line.text()
-		reduced := doHyphens && line.hyphenated && il != len(p.lines)-1
+		reduced := doHyphens && line.endsInHyphen() && il != len(p.lines)-1
 		if reduced { // Line ending with hyphen. Remove it.
 			lineText = removeLastRune(lineText)
 		}
@@ -138,7 +138,7 @@ func (p *textPara) toCellTextMarks(offset *int) []TextMark {
 	var marks []TextMark
 	for il, line := range p.lines {
 		lineMarks := line.toTextMarks(offset)
-		reduced := doHyphens && line.hyphenated && il != len(p.lines)-1
+		reduced := doHyphens && line.endsInHyphen() && il != len(p.lines)-1
 		if reduced { // Line ending with hyphen. Remove it.
 			lineMarks = removeLastTextMarkRune(lineMarks, offset)
 		}

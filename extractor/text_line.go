@@ -20,10 +20,7 @@ type textLine struct {
 	depth              float64     // Distance from bottom of line to top of page.
 	words              []*textWord // Words in this line.
 	fontsize           float64     // Largest word font size.
-	hyphenated         bool        // Does line have at least minHyphenation runes and end in a hyphen.
 }
-
-const minHyphenation = 4
 
 // newTextLine creates a line with font and bbox size of `w`, removes `w` from
 // p.bins[bestWordDepthIdx] and adds it to the line
@@ -59,7 +56,7 @@ func (l *textLine) text() string {
 		if w.newWord {
 			words = append(words, " ")
 		}
-		words = append(words, w.text())
+		words = append(words, w.text)
 	}
 	return strings.Join(words, "")
 }
@@ -106,14 +103,25 @@ func (l *textLine) markWordBoundaries() {
 			w.newWord = true
 		}
 	}
-
-	// check for hyphen at end of line
-	l.hyphenated = isHyphenated(l.text())
 }
 
-// isHyphenated returns true if `text` is a hyphenated word.
-func isHyphenated(text string) bool {
-	runes := []rune(text)
+// endsInHyphen returns true if `l` has at least minHyphenation runes and end in a hyphen.
+func (l *textLine) endsInHyphen() bool {
+	// Computing l.text() is a little expensive so we filter out simple cases first.
+	lastWord := l.words[len(l.words)-1]
+	runes := []rune(lastWord.text)
+	if !unicode.Is(unicode.Hyphen, runes[len(runes)-1]) {
+		return false
+	}
+	if lastWord.newWord && endsInHyphen(runes) {
+		return true
+	}
+
+	return endsInHyphen([]rune(l.text()))
+}
+
+// endsInHyphen returns true if `runes` ends with a hyphenated word.
+func endsInHyphen(runes []rune) bool {
 	return len(runes) >= minHyphenation &&
 		unicode.Is(unicode.Hyphen, runes[len(runes)-1]) &&
 		!unicode.IsSpace(runes[len(runes)-2])

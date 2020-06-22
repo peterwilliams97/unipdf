@@ -198,7 +198,7 @@ func (paras paraList) writeText(w io.Writer) {
 }
 
 // toTextMarks creates the TextMarkArray corresponding to the extracted text created by
-// paras `paras`.writeText().
+// `paras`.writeText().
 func (paras paraList) toTextMarks() []TextMark {
 	offset := 0
 	var marks []TextMark

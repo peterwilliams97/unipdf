@@ -59,7 +59,7 @@ func (b *wordBag) String() string {
 	for _, depthIdx := range b.depthIndexes() {
 		words, _ := b.bins[depthIdx]
 		for _, w := range words {
-			texts = append(texts, w.text())
+			texts = append(texts, w.text)
 		}
 	}
 	return fmt.Sprintf("serial=%d %.2f fontsize=%.2f %d %q",
@@ -173,7 +173,7 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 				minDepth, maxDepth,
 				para.PdfRectangle, para.fontsize, truncate(para.text(), 20))
 			for i, word := range newWords {
-				fmt.Printf("  %q", word.text())
+				fmt.Printf("  %q", word.text)
 				if i >= 5 {
 					break
 				}
@@ -190,7 +190,7 @@ func (b *wordBag) text() string {
 	words := b.allWords()
 	texts := make([]string, len(words))
 	for i, w := range words {
-		texts[i] = w.text()
+		texts[i] = w.text
 	}
 	return strings.Join(texts, " ")
 }

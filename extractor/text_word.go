@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
@@ -21,9 +20,10 @@ import (
 //  - A textLine is the textWords at similar depths sorted in reading order.
 //  - To find the words, scan the textWords in the line and start a new word every time word.newWord
 type textWord struct {
-	serial             int         // Sequence number for debugging.
-	model.PdfRectangle             // Bounding box (union of `marks` bounding boxes).
-	depth              float64     // Distance from bottom of this word to the top of the page.
+	serial             int     // Sequence number for debugging.
+	model.PdfRectangle         // Bounding box (union of `marks` bounding boxes).
+	depth              float64 // Distance from bottom of this word to the top of the page.
+	text               string
 	marks              []*textMark // Marks in this word.
 	fontsize           float64     // Largest fontsize in `marks`.
 	newWord            bool        // Is this word fragemet the start of  a new word?
@@ -33,7 +33,7 @@ type textWord struct {
 // `pageSize` is used to calculate the words` depths depth on the page.
 // Algorithm:
 //  1. `marks` are in the order they were rendered in the PDF.
-//  2. Successive marks are combined into a word unless
+//  2. Successive marks are combined into a word fragment unless
 //      One mark is a space character.
 //      They are separated by more than maxWordAdvanceR*fontsize in the reading direction
 //      They are not within the location allowed by horizontal and vertical variations allowed by
@@ -47,7 +47,9 @@ func makeTextWords(marks []*textMark, pageSize model.PdfRectangle) []*textWord {
 	// addNewWord adds `newWord` to `words` and resets `newWord` to nil.
 	addNewWord := func() {
 		if newWord != nil {
-			if !isTextSpace(newWord.text()) {
+			text := newWord.computeText()
+			if !isTextSpace(text) {
+				newWord.text = text
 				words = append(words, newWord)
 			}
 			newWord = nil
@@ -81,6 +83,7 @@ func makeTextWords(marks []*textMark, pageSize model.PdfRectangle) []*textWord {
 		newWord.addMark(tm, pageSize)
 	}
 	addNewWord()
+
 	return words
 }
 
@@ -110,7 +113,7 @@ func newTextWord(marks []*textMark, pageSize model.PdfRectangle) *textWord {
 // String returns a description of `w.
 func (w *textWord) String() string {
 	return fmt.Sprintf("serial=%d %.2f %6.2f fontsize=%.2f \"%s\"",
-		w.serial, w.depth, w.PdfRectangle, w.fontsize, w.text())
+		w.serial, w.depth, w.PdfRectangle, w.fontsize, w.text)
 }
 
 // bbox makes textWord implement the `bounded` interface.
@@ -129,11 +132,6 @@ func (w *textWord) addMark(tm *textMark, pageSize model.PdfRectangle) {
 	w.depth = pageSize.Ury - w.PdfRectangle.Lly
 }
 
-// len returns the number of runes in `w`.
-func (w *textWord) len() int {
-	return utf8.RuneCountInString(w.text())
-}
-
 // absorb combines `word` into `w`.
 func (w *textWord) absorb(word *textWord) {
 	w.PdfRectangle = rectUnion(w.PdfRectangle, word.PdfRectangle)
@@ -141,7 +139,7 @@ func (w *textWord) absorb(word *textWord) {
 }
 
 // text returns the text in `w`.
-func (w *textWord) text() string {
+func (w *textWord) computeText() string {
 	texts := make([]string, len(w.marks))
 	for i, tm := range w.marks {
 		texts[i] = tm.text

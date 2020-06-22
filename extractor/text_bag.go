@@ -367,14 +367,9 @@ func mergWordBags(paras []*wordBag) []*wordBag {
 
 // absorb combines the words from `bag` into `b`.
 func (b *wordBag) absorb(bag *wordBag) {
-	var absorbed []string
 	for depthIdx, words := range bag.bins {
 		for _, word := range words {
 			b.pullWord(bag, depthIdx, word)
-			absorbed = append(absorbed, word.text())
 		}
-	}
-	if verbose {
-		common.Log.Info("absorb: %d %q", len(absorbed), absorbed)
 	}
 }

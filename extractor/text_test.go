@@ -151,7 +151,7 @@ func TestTextExtractionFiles(t *testing.T) {
 	}
 	for _, test := range fileExtractionTests {
 		// TODO(peterwilliams97): Remove non-lazy test.
-		testExtractFileOptions(t, test.filename, test.pageTerms, false)
+		// testExtractFileOptions(t, test.filename, test.pageTerms, false)
 		testExtractFileOptions(t, test.filename, test.pageTerms, true)
 	}
 }
@@ -762,8 +762,24 @@ func compareExtractedTextToReference(t *testing.T, filename string, pageNum int,
 	actualText = reduceSpaces(norm.NFKC.String(actualText))
 	expectedText = reduceSpaces(norm.NFKC.String(expectedText))
 	if actualText != expectedText {
-		common.Log.Info("actual   =====================\n%s\n=====================", actualText)
-		common.Log.Info("expected =====================\n%s\n=====================", expectedText)
+		common.Log.Info("actual   ===================== %d\n%s\n=====================", len(actualText), actualText)
+		common.Log.Info("expected ===================== %d\n%s\n=====================", len(expectedText), expectedText)
+		at := []rune(actualText)
+		et := []rune(expectedText)
+		n := minInt(len(at), len(et))
+		i0 := -1
+		for i := 0; i < n; i++ {
+			if at[i] != et[i] {
+				i0 = i
+				break
+			}
+		}
+		common.Log.Info("i0=%d", i0)
+		i1 := minInt(i0+10, n)
+		i0 = maxInt(i0-10, 0)
+		for i := i0; i < i1; i++ {
+			fmt.Printf("%4d: %4q %q\n", i, at[i], et[i])
+		}
 		t.Fatalf("Text mismatch filename=%q page=%d", filename, pageNum)
 	}
 }

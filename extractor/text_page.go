@@ -364,7 +364,7 @@ func (paras paraList) computeEBBoxes() {
 	for _, para := range paras {
 		para.eBBox = para.PdfRectangle
 	}
-	paraYNeighbours := paras.yNeighbours()
+	paraYNeighbours := paras.yNeighbours(0)
 
 	for i, aa := range paras {
 		a := aa.eBBox

@@ -80,6 +80,15 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
+func truncate2(s string, n int) string {
+	if len(s) < n {
+		return s
+	}
+	n0 := n / 2
+	n1 := n - n0
+	return s[:n0] + " ... " + s[len(s)-n1:]
+}
+
 // pdfColorToGoColor converts the specified color to a Go color, using the
 // provided colorspace. If unsuccessful, color.Black is returned.
 func pdfColorToGoColor(space model.PdfColorspace, c model.PdfColor) color.Color {

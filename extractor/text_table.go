@@ -8,6 +8,7 @@ package extractor
 import (
 	"fmt"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/model"
@@ -91,6 +92,9 @@ func (paras paraList) findTables() []*textTable {
 //        immediately below b and ooverlaps it in the s axis.
 //   None of a, b, c or d are cells in existing tables.
 func (para *textPara) isAtom() *textTable {
+	if !para.validHead() {
+		return nil
+	}
 	a := para
 	b := para.right
 	c := para.below
@@ -102,7 +106,20 @@ func (para *textPara) isAtom() *textTable {
 		return nil
 	}
 
+	if !b.validHead() || !c.validHead() {
+		return nil
+	}
+
+	show := func(p *textPara) string {
+		return fmt.Sprintf("%6.2f %q", p.PdfRectangle, truncate(p.text(), 50))
+	}
+
 	if b.left != a || c.above != a || d.left != c || d.above != b {
+		common.Log.Notice("left + above %t %t %t %t", b.left != a, c.above != a, d.left != c, d.above != b)
+		fmt.Printf("  a: %s\n", show(a))
+		fmt.Printf("  b: %s\n", show(b))
+		fmt.Printf("  c: %s\n", show(c))
+		fmt.Printf("  d: %s\n", show(d))
 		return nil
 	}
 	return newTableAtom(a, b, c, d)
@@ -181,6 +198,9 @@ func (t *textTable) getDown() paraList {
 			return nil
 		}
 	}
+	if !cells[0].validHead() {
+		return nil
+	}
 	return cells
 }
 
@@ -199,6 +219,9 @@ func (t *textTable) getRight() paraList {
 		if cells[y].below != cells[y+1] {
 			return nil
 		}
+	}
+	if !cells[0].validHead() {
+		return nil
 	}
 	return cells
 }
@@ -297,7 +320,13 @@ func (t *textTable) log(title string) {
 	for y := 0; y < t.h; y++ {
 		for x := 0; x < t.w; x++ {
 			p := t.get(x, y)
-			fmt.Printf("%4d %2d: %6.2f %q\n", x, y, p.PdfRectangle, truncate(p.text(), 50))
+			fmt.Printf("%4d %2d: %6.2f %q %d\n", x, y, p.PdfRectangle, truncate(p.text(), 50), utf8.RuneCountInString(p.text()))
 		}
 	}
+	// panic("table")
+}
+
+func (p *textPara) validHead() bool {
+	// return true
+	return utf8.RuneCountInString(p.text()) > minTableText
 }

@@ -6,9 +6,12 @@
 package extractor
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"unicode"
+
+	"github.com/unidoc/unipdf/v3/common"
 )
 
 // TOL is the tolerance for coordinates to be consideted equal. It is big enough to cover all
@@ -41,50 +44,71 @@ func maxInt(a, b int) int {
 //    a.below is the unique highest para completely below `a` that overlaps it in the x-direction
 //    a.right is the unique leftmost para completely to the right of `a` that overlaps it in the y-direction
 func (paras paraList) addNeighbours() {
-	paraNeighbours := paras.yNeighbours()
-	for _, para := range paras {
-		var left *textPara
-		dup := false
-		for _, k := range paraNeighbours[para] {
+	paraNeighbours := paras.yNeighbours(0)
+	paraNeighboursExt := paras.yNeighbours(3)
+
+	splitNeighbours := func(neighbours []int, para *textPara) ([]*textPara, []*textPara) {
+		leftElts := make([]*textPara, 0, len(neighbours)-1)
+		rightElts := make([]*textPara, 0, len(neighbours)-1)
+		for _, k := range neighbours {
 			b := paras[k]
 			if b.Urx <= para.Llx {
-				if left == nil {
-					left = b
-				} else {
-					if b.Llx > left.Llx {
-						left = b
-						dup = false
-					} else if b.Llx == left.Llx {
-						dup = true
-					}
-				}
+				leftElts = append(leftElts, b)
+			} else if b.Llx >= para.Urx {
+				rightElts = append(rightElts, b)
 			}
 		}
-		if !dup {
-			para.left = left
-		}
+		return leftElts, rightElts
 	}
+
 	for _, para := range paras {
-		var right *textPara
-		dup := false
-		for _, k := range paraNeighbours[para] {
-			b := paras[k]
-			if b.Llx >= para.Urx {
-				if right == nil {
-					right = b
-				} else {
-					if b.Llx < right.Llx {
-						right = b
-						dup = false
-					} else if b.Llx == right.Llx {
-						dup = true
-					}
+		neighbours := paraNeighbours[para]
+		if len(neighbours) == 0 {
+			continue
+		}
+		leftElts, rightElts := splitNeighbours(neighbours, para)
+
+		if len(leftElts) == 0 && len(rightElts) == 0 {
+			continue
+		}
+
+		neighboursExt := paraNeighboursExt[para]
+		leftEltsExt, rightEltsExt := splitNeighbours(neighboursExt, para)
+
+		if len(leftElts) > 0 {
+			left := leftElts[0]
+			for _, b := range leftElts[1:] {
+				if b.Urx >= left.Urx {
+					left = b
 				}
 			}
+			for _, b := range leftEltsExt {
+				if b != left && b.Urx > left.Llx {
+					left = nil
+					break
+				}
+			}
+			para.left = left
+			// common.Log.Notice("para=%s\n\t left=%s\n\t+left=%s", para, left, para.left)
 		}
-		if !dup {
+		if len(rightElts) > 0 {
+			right := rightElts[0]
+			for _, b := range rightElts[1:] {
+				if b.Llx <= right.Llx {
+					right = b
+				}
+			}
+			for _, b := range rightEltsExt {
+				if b != right && b.Llx < right.Urx {
+					right = nil
+					break
+				}
+			}
 			para.right = right
+			// common.Log.Notice("para=%s\n\t left=%s\n\t+left=%s", para, left, para.left)
 		}
+
+		// panic("done")
 	}
 
 	paraNeighbours = paras.xNeighbours()
@@ -132,24 +156,66 @@ func (paras paraList) addNeighbours() {
 			para.below = below
 		}
 	}
+
+	if true {
+		for _, para := range paras {
+			if para.left != nil && para.left.right != para {
+				para.left = nil
+			}
+			if para.above != nil && para.above.below != para {
+				para.above = nil
+			}
+		}
+		for _, para := range paras {
+			if para.right != nil && para.right.left != para {
+				// common.Log.Notice("Remove right: %s", para)
+				para.right = nil
+			}
+			if para.below != nil && para.below.above != para {
+				// common.Log.Notice("Remove belwo: %s", para)
+				para.below = nil
+			}
+		}
+	}
+
+	if false {
+		show := func(p *textPara) string {
+			if p == nil {
+				return ""
+			}
+			text := truncate2(p.text(), 60)
+			return fmt.Sprintf("%q", text)
+		}
+
+		common.Log.Notice("addNeighbours %d", len(paras))
+		for i, para := range paras {
+			fmt.Printf("%d: %s\n", i, show(para))
+			fmt.Printf("      left: %s\n", show(para.left))
+			fmt.Printf("     above: %s\n", show(para.above))
+			fmt.Printf("     right: %s\n", show(para.right))
+			fmt.Printf("     below: %s\n", show(para.below))
+		}
+		fmt.Println("=======================")
+		panic("done")
+	}
 }
 
 // xNeighbours returns a map {para: indexes of paras that x-overlap para}.
 func (paras paraList) xNeighbours() map[*textPara][]int {
 	events := make([]event, 2*len(paras))
 	for i, para := range paras {
-		events[2*i] = event{para.Llx, true, i}
-		events[2*i+1] = event{para.Urx, false, i}
+		events[2*i] = event{para.Llx - GRAIN, true, i}
+		events[2*i+1] = event{para.Urx + GRAIN, false, i}
 	}
 	return paras.eventNeighbours(events)
 }
 
 // yNeighbours returns a map {para: indexes of paras that y-overlap para}.
-func (paras paraList) yNeighbours() map[*textPara][]int {
+func (paras paraList) yNeighbours(delta float64) map[*textPara][]int {
 	events := make([]event, 2*len(paras))
 	for i, para := range paras {
-		events[2*i] = event{para.Lly, true, i}
-		events[2*i+1] = event{para.Ury, false, i}
+		events[2*i] = event{para.Lly - delta, true, i}
+		events[2*i+1] = event{para.Ury + delta, false, i}
 	}
 	return paras.eventNeighbours(events)
 }
@@ -195,6 +261,10 @@ func (paras paraList) eventNeighbours(events []event) map[*textPara][]int {
 	paraNeighbors := map[*textPara][]int{}
 	for i, olap := range overlaps {
 		para := paras[i]
+		if len(olap) == 0 {
+			paraNeighbors[para] = nil
+			continue
+		}
 		neighbours := make([]int, len(olap))
 		k := 0
 		for j := range olap {
@@ -204,6 +274,12 @@ func (paras paraList) eventNeighbours(events []event) map[*textPara][]int {
 		paraNeighbors[para] = neighbours
 	}
 	return paraNeighbors
+}
+
+const GRAIN = 6.0
+
+func granularize(z float64) float64 {
+	return GRAIN * math.Round(z/GRAIN)
 }
 
 // isTextSpace returns true if `text` contains nothing but space code points.

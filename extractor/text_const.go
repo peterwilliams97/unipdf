@@ -13,7 +13,7 @@ const (
 	verbosePara     = false
 	verboseParaLine = verbosePara && false
 	verboseParaWord = verboseParaLine && false
-	verboseTable    = false
+	verboseTable    = true
 )
 
 // The following constants control the approaches used in the code.
@@ -85,4 +85,6 @@ const (
 
 	// Minimum number of cells in a textTable
 	minTableParas = 6
+
+	minTableText = 3
 )

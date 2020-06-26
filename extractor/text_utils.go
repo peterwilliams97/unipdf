@@ -44,8 +44,6 @@ func maxInt(a, b int) int {
 //    a.below is the unique highest para completely below `a` that overlaps it in the x-direction
 //    a.right is the unique leftmost para completely to the right of `a` that overlaps it in the y-direction
 func (paras paraList) addNeighbours() {
-	paraNeighbours := paras.yNeighbours(3)
-
 	splitYNeighbours := func(neighbours []int, para *textPara) ([]*textPara, []*textPara) {
 		leftElts := make([]*textPara, 0, len(neighbours)-1)
 		rightElts := make([]*textPara, 0, len(neighbours)-1)
@@ -59,7 +57,6 @@ func (paras paraList) addNeighbours() {
 		}
 		return leftElts, rightElts
 	}
-
 	splitXNeighbours := func(neighbours []int, para *textPara) ([]*textPara, []*textPara) {
 		aboveElts := make([]*textPara, 0, len(neighbours)-1)
 		belowElts := make([]*textPara, 0, len(neighbours)-1)
@@ -74,6 +71,7 @@ func (paras paraList) addNeighbours() {
 		return aboveElts, belowElts
 	}
 
+	paraNeighbours := paras.yNeighbours(cellMarginY)
 	for _, para := range paras {
 		neighbours := paraNeighbours[para]
 		if len(neighbours) == 0 {
@@ -119,11 +117,9 @@ func (paras paraList) addNeighbours() {
 			}
 			// common.Log.Notice("para=%s\n\t left=%s\n\t+left=%s", para, left, para.left)
 		}
-
-		// panic("done")
 	}
 
-	paraNeighbours = paras.xNeighbours(3)
+	paraNeighbours = paras.xNeighbours(cellMarginX)
 	for _, para := range paras {
 		neighbours := paraNeighbours[para]
 		if len(neighbours) == 0 {
@@ -169,28 +165,6 @@ func (paras paraList) addNeighbours() {
 				para.above = above
 			}
 			// common.Log.Notice("para=%s\n\t left=%s\n\t+left=%s", para, left, para.left)
-		}
-	}
-	for _, para := range paras {
-		var below *textPara
-		dup := false
-		for _, i := range paraNeighbours[para] {
-			b := paras[i]
-			if b.Ury <= para.Lly {
-				if below == nil {
-					below = b
-				} else {
-					if b.Ury > below.Ury {
-						below = b
-						dup = false
-					} else if b.Ury == below.Ury {
-						dup = true
-					}
-				}
-			}
-		}
-		if !dup {
-			para.below = below
 		}
 	}
 
@@ -240,9 +214,16 @@ func (paras paraList) addNeighbours() {
 // xNeighbours returns a map {para: indexes of paras that x-overlap para}.
 func (paras paraList) xNeighbours(margin float64) map[*textPara][]int {
 	events := make([]event, 2*len(paras))
-	for i, para := range paras {
-		events[2*i] = event{para.Llx - margin, true, i}
-		events[2*i+1] = event{para.Urx + margin, false, i}
+	if margin == 0 {
+		for i, para := range paras {
+			events[2*i] = event{para.Llx, true, i}
+			events[2*i+1] = event{para.Urx, false, i}
+		}
+	} else {
+		for i, para := range paras {
+			events[2*i] = event{para.Llx - margin*para.fontsize(), true, i}
+			events[2*i+1] = event{para.Urx + margin*para.fontsize(), false, i}
+		}
 	}
 	return paras.eventNeighbours(events)
 }
@@ -250,9 +231,16 @@ func (paras paraList) xNeighbours(margin float64) map[*textPara][]int {
 // yNeighbours returns a map {para: indexes of paras that y-overlap para}.
 func (paras paraList) yNeighbours(margin float64) map[*textPara][]int {
 	events := make([]event, 2*len(paras))
-	for i, para := range paras {
-		events[2*i] = event{para.Lly - margin, true, i}
-		events[2*i+1] = event{para.Ury + margin, false, i}
+	if margin == 0 {
+		for i, para := range paras {
+			events[2*i] = event{para.Lly, true, i}
+			events[2*i+1] = event{para.Ury, false, i}
+		}
+	} else {
+		for i, para := range paras {
+			events[2*i] = event{para.Lly - margin*para.fontsize(), true, i}
+			events[2*i+1] = event{para.Ury + margin*para.fontsize(), false, i}
+		}
 	}
 	return paras.eventNeighbours(events)
 }

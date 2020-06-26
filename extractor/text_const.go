@@ -86,5 +86,6 @@ const (
 	// Minimum number of cells in a textTable
 	minTableParas = 6
 
-	minTableText = 3
+	cellMarginX = 0.2
+	cellMarginY = 0.3
 )

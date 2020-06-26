@@ -44,10 +44,9 @@ func maxInt(a, b int) int {
 //    a.below is the unique highest para completely below `a` that overlaps it in the x-direction
 //    a.right is the unique leftmost para completely to the right of `a` that overlaps it in the y-direction
 func (paras paraList) addNeighbours() {
-	paraNeighbours := paras.yNeighbours(0)
-	paraNeighboursExt := paras.yNeighbours(3)
+	paraNeighbours := paras.yNeighbours(3)
 
-	splitNeighbours := func(neighbours []int, para *textPara) ([]*textPara, []*textPara) {
+	splitYNeighbours := func(neighbours []int, para *textPara) ([]*textPara, []*textPara) {
 		leftElts := make([]*textPara, 0, len(neighbours)-1)
 		rightElts := make([]*textPara, 0, len(neighbours)-1)
 		for _, k := range neighbours {
@@ -61,20 +60,29 @@ func (paras paraList) addNeighbours() {
 		return leftElts, rightElts
 	}
 
+	splitXNeighbours := func(neighbours []int, para *textPara) ([]*textPara, []*textPara) {
+		aboveElts := make([]*textPara, 0, len(neighbours)-1)
+		belowElts := make([]*textPara, 0, len(neighbours)-1)
+		for _, k := range neighbours {
+			b := paras[k]
+			if b.Ury <= para.Lly {
+				belowElts = append(belowElts, b)
+			} else if b.Lly >= para.Ury {
+				aboveElts = append(aboveElts, b)
+			}
+		}
+		return aboveElts, belowElts
+	}
+
 	for _, para := range paras {
 		neighbours := paraNeighbours[para]
 		if len(neighbours) == 0 {
 			continue
 		}
-		leftElts, rightElts := splitNeighbours(neighbours, para)
-
+		leftElts, rightElts := splitYNeighbours(neighbours, para)
 		if len(leftElts) == 0 && len(rightElts) == 0 {
 			continue
 		}
-
-		neighboursExt := paraNeighboursExt[para]
-		leftEltsExt, rightEltsExt := splitNeighbours(neighboursExt, para)
-
 		if len(leftElts) > 0 {
 			left := leftElts[0]
 			for _, b := range leftElts[1:] {
@@ -82,13 +90,15 @@ func (paras paraList) addNeighbours() {
 					left = b
 				}
 			}
-			for _, b := range leftEltsExt {
+			for _, b := range leftElts {
 				if b != left && b.Urx > left.Llx {
 					left = nil
 					break
 				}
 			}
-			para.left = left
+			if left != nil && intersectsY(para.PdfRectangle, left.PdfRectangle) {
+				para.left = left
+			}
 			// common.Log.Notice("para=%s\n\t left=%s\n\t+left=%s", para, left, para.left)
 		}
 		if len(rightElts) > 0 {
@@ -98,40 +108,67 @@ func (paras paraList) addNeighbours() {
 					right = b
 				}
 			}
-			for _, b := range rightEltsExt {
+			for _, b := range rightElts {
 				if b != right && b.Llx < right.Urx {
 					right = nil
 					break
 				}
 			}
-			para.right = right
+			if right != nil && intersectsY(para.PdfRectangle, right.PdfRectangle) {
+				para.right = right
+			}
 			// common.Log.Notice("para=%s\n\t left=%s\n\t+left=%s", para, left, para.left)
 		}
 
 		// panic("done")
 	}
 
-	paraNeighbours = paras.xNeighbours()
+	paraNeighbours = paras.xNeighbours(3)
 	for _, para := range paras {
-		var above *textPara
-		dup := false
-		for _, i := range paraNeighbours[para] {
-			b := paras[i]
-			if b.Lly >= para.Ury {
-				if above == nil {
-					above = b
-				} else {
-					if b.Ury < above.Ury {
-						above = b
-						dup = false
-					} else if b.Ury == above.Ury {
-						dup = true
-					}
+		neighbours := paraNeighbours[para]
+		if len(neighbours) == 0 {
+			continue
+		}
+		aboveElts, belowElts := splitXNeighbours(neighbours, para)
+		if len(aboveElts) == 0 && len(belowElts) == 0 {
+			continue
+		}
+
+		if len(belowElts) > 0 {
+			below := belowElts[0]
+			for _, b := range belowElts[1:] {
+				if b.Ury >= below.Ury {
+					below = b
 				}
 			}
+			for _, b := range belowElts {
+				if b != below && b.Ury > below.Lly {
+					below = nil
+					break
+				}
+			}
+			if below != nil && intersectsX(para.PdfRectangle, below.PdfRectangle) {
+				para.below = below
+			}
+			// common.Log.Notice("para=%s\n\t left=%s\n\t+left=%s", para, left, para.left)
 		}
-		if !dup {
-			para.above = above
+		if len(aboveElts) > 0 {
+			above := aboveElts[0]
+			for _, b := range aboveElts[1:] {
+				if b.Lly <= above.Lly {
+					above = b
+				}
+			}
+			for _, b := range aboveElts {
+				if b != above && b.Lly < above.Ury {
+					above = nil
+					break
+				}
+			}
+			if above != nil && intersectsX(para.PdfRectangle, above.PdfRectangle) {
+				para.above = above
+			}
+			// common.Log.Notice("para=%s\n\t left=%s\n\t+left=%s", para, left, para.left)
 		}
 	}
 	for _, para := range paras {
@@ -165,8 +202,8 @@ func (paras paraList) addNeighbours() {
 			if para.above != nil && para.above.below != para {
 				para.above = nil
 			}
-		}
-		for _, para := range paras {
+			// }
+			// for _, para := range paras {
 			if para.right != nil && para.right.left != para {
 				// common.Log.Notice("Remove right: %s", para)
 				para.right = nil
@@ -201,21 +238,21 @@ func (paras paraList) addNeighbours() {
 }
 
 // xNeighbours returns a map {para: indexes of paras that x-overlap para}.
-func (paras paraList) xNeighbours() map[*textPara][]int {
+func (paras paraList) xNeighbours(margin float64) map[*textPara][]int {
 	events := make([]event, 2*len(paras))
 	for i, para := range paras {
-		events[2*i] = event{para.Llx - GRAIN, true, i}
-		events[2*i+1] = event{para.Urx + GRAIN, false, i}
+		events[2*i] = event{para.Llx - margin, true, i}
+		events[2*i+1] = event{para.Urx + margin, false, i}
 	}
 	return paras.eventNeighbours(events)
 }
 
 // yNeighbours returns a map {para: indexes of paras that y-overlap para}.
-func (paras paraList) yNeighbours(delta float64) map[*textPara][]int {
+func (paras paraList) yNeighbours(margin float64) map[*textPara][]int {
 	events := make([]event, 2*len(paras))
 	for i, para := range paras {
-		events[2*i] = event{para.Lly - delta, true, i}
-		events[2*i+1] = event{para.Ury + delta, false, i}
+		events[2*i] = event{para.Lly - margin, true, i}
+		events[2*i+1] = event{para.Ury + margin, false, i}
 	}
 	return paras.eventNeighbours(events)
 }

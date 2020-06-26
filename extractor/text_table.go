@@ -120,6 +120,7 @@ func (para *textPara) isAtom() *textTable {
 		fmt.Printf("  b: %s\n", show(b))
 		fmt.Printf("  c: %s\n", show(c))
 		fmt.Printf("  d: %s\n", show(d))
+		panic("can't happen")
 		return nil
 	}
 	return newTableAtom(a, b, c, d)
@@ -328,5 +329,5 @@ func (t *textTable) log(title string) {
 
 func (p *textPara) validHead() bool {
 	return true
-	return utf8.RuneCountInString(p.text()) > minTableText
+	// return utf8.RuneCountInString(p.text()) > minTableText
 }

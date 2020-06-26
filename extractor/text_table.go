@@ -327,6 +327,6 @@ func (t *textTable) log(title string) {
 }
 
 func (p *textPara) validHead() bool {
-	// return true
+	return true
 	return utf8.RuneCountInString(p.text()) > minTableText
 }

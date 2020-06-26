@@ -49,7 +49,26 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle) paraList {
 	if len(words) == 0 {
 		return nil
 	}
-
+	if false {
+		common.Log.Info("makeTextPage: %d marks %d words", len(marks), len(words))
+		texts := make([]string, 0, len(words))
+		set := map[string]bool{}
+		for _, w := range words {
+			if _, ok := set[w.text]; ok {
+				continue
+			}
+			if len([]rune(w.text)) == 0 {
+				continue
+			}
+			set[w.text] = true
+			texts = append(texts, w.text)
+		}
+		sort.Strings(texts)
+		for _, w := range texts {
+			fmt.Printf("%q\n", w)
+		}
+		fmt.Println("============")
+	}
 	// Put the word fragments into a container that facilitates the grouping of words into paragraphs.
 	pageWords := makeWordBag(words, pageSize.Ury)
 

@@ -78,12 +78,29 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 	readingOverlap func(para *wordBag, word *textWord) bool,
 	minDepth, maxDepth, fontTol float64,
 	detectOnly, freezeDepth bool) int {
+	// common.Log.Notice("scanBand; %-15q minDepth=%6.2f maxDepth=%6.2f -- %6.2f",
+	// 	title, minDepth, maxDepth, maxDepth-minDepth)
 	fontsize := para.fontsize
+	if false { // !@#$% Killer
+		indexes := b.depthBand(minDepth-fontsize, maxDepth+fontsize)
+		if len(indexes) > 0 {
+			word := b.firstWord(indexes[0])
+			fontsize = word.fontsize
+		}
+	}
 	lineDepth := lineDepthR * fontsize
 	n := 0
-	minDepth0, maxDepth0 := minDepth, maxDepth
+	// minDepth0, maxDepth0 := minDepth, maxDepth
 	var newWords []*textWord
 	for _, depthIdx := range b.depthBand(minDepth-lineDepth, maxDepth+lineDepth) {
+		if len(b.bins[depthIdx]) == 0 {
+			continue
+		}
+		if false { // 1!@#$ BAD
+			word := b.bins[depthIdx][0]
+			fontsize = word.fontsize
+			lineDepth = lineDepthR * fontsize
+		}
 		for _, word := range b.bins[depthIdx] {
 			if !(minDepth-lineDepth <= word.depth && word.depth <= maxDepth+lineDepth) {
 				continue
@@ -91,13 +108,16 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 			if !readingOverlap(para, word) {
 				continue
 			}
-			fontRatio1 := math.Abs(word.fontsize-fontsize) / fontsize
-			fontRatio2 := word.fontsize / fontsize
+			// common.Log.Info("overlap: para=%.2f word=%.2f", para.PdfRectangle, word.PdfRectangle)
+			fontRatio1 := 2.0 * math.Abs(word.fontsize-para.fontsize) / (word.fontsize + para.fontsize)
+			fontRatio2 := math.Max(word.fontsize/para.fontsize, para.fontsize/word.fontsize)
 			fontRatio := math.Min(fontRatio1, fontRatio2)
-			if fontTol > 0 {
-				if fontRatio > fontTol {
-					continue
-				}
+			// fontRatio1 := math.Abs(word.fontsize-fontsize) / fontsize
+			// fontRatio2 := word.fontsize / fontsize
+			// fontRatio := math.Min(fontRatio1, fontRatio2)
+			// common.Log.Info("fontTol=%.2f fontRatio=%.2f", fontTol, fontRatio)
+			if fontTol > 0 && fontRatio > fontTol {
+				continue
 			}
 
 			if !detectOnly {
@@ -108,9 +128,16 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 			if !freezeDepth {
 				if word.depth < minDepth {
 					minDepth = word.depth
+					// common.Log.Info("minDepth: %.2f", minDepth)
 				}
 				if word.depth > maxDepth {
+					// delta := word.depth - maxDepth
+					// common.Log.Info("maxDepth: %.2f → %.2f", maxDepth, word.depth)
 					maxDepth = word.depth
+
+					// if delta > 50 {
+					// 	panic("giant step")
+					// }
 				}
 			}
 			// Has no effect on results
@@ -121,24 +148,27 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 			}
 		}
 	}
-	if verbose {
-		if len(title) > 0 {
-			common.Log.Info("scanBand: %s [%.2f %.2f]->[%.2f %.2f] para=%.2f fontsize=%.2f %q",
-				title,
-				minDepth0, maxDepth0,
-				minDepth, maxDepth,
-				para.PdfRectangle, para.fontsize, truncate(para.text(), 20))
-			for i, word := range newWords {
-				fmt.Printf("  %q", word.text)
-				if i >= 5 {
-					break
-				}
-			}
-			if len(newWords) > 0 {
-				fmt.Println()
-			}
-		}
-	}
+	// if false && len(title) > 0 {
+	// 	// dead := para.Width()*para.Height() > 500.0*400.0
+	// 	common.Log.Notice("scanBand: %s [%.2f %.2f]→[%.2f %.2f] para=%.2f fontsize=%.2f\n\t%q",
+	// 		title,
+	// 		minDepth0, maxDepth0,
+	// 		minDepth, maxDepth,
+	// 		para.PdfRectangle, para.fontsize, truncate(para.text(), 100))
+	// 	for i, word := range newWords {
+	// 		fmt.Printf("    %s\n", word)
+	// 		if i >= 5 && !dead {
+	// 			break
+	// 		}
+	// 	}
+	// 	// if len(newWords) > 0 {
+	// 	// 	fmt.Println()
+	// 	// }
+	// 	// if dead {
+	// 	// 	panic(fmt.Errorf("para=%.2f ", para.PdfRectangle))
+	// 	// }
+	// }
+
 	return n
 }
 
@@ -230,10 +260,14 @@ func (b *wordBag) stratum(depthIdx int) []*textWord {
 // `depthIdx` is the depth index of `word` in all wordBags.
 // TODO(peterwilliams97): Compute depthIdx from `word` instead of passing it around.
 func (b *wordBag) pullWord(bag *wordBag, word *textWord, depthIdx int) {
+	// r := b.PdfRectangle
+	// fontsize := b.fontsize
 	b.PdfRectangle = rectUnion(b.PdfRectangle, word.PdfRectangle)
 	if word.fontsize > b.fontsize {
 		b.fontsize = word.fontsize
 	}
+	// common.Log.Info("pullWord: %.2f→%.2f %.2f→%.2f %s", fontsize, b.fontsize, r, b.PdfRectangle, word)
+
 	b.bins[depthIdx] = append(b.bins[depthIdx], word)
 	bag.removeWord(word, depthIdx)
 }
@@ -279,6 +313,13 @@ func mergWordBags(paraWords []*wordBag) []*wordBag {
 			continue
 		}
 		para0 := paraWords[i0]
+		// r := para0.PdfRectangle
+		// depthIdx := para0.depthIndexes()[0]
+		// fontsize := para0.firstWord(depthIdx).fontsize
+		// r.Llx -= fontsize
+		// if verbose {
+		// 	common.Log.Info("xxx fontsize=%.2f r=%.2f %q", fontsize, r, truncate(para0.text(), 50))
+		// }
 		for i1 := i0 + 1; i1 < len(paraWords); i1++ {
 			if _, ok := absorbed[i0]; ok {
 				continue
@@ -287,6 +328,7 @@ func mergWordBags(paraWords []*wordBag) []*wordBag {
 			r := para0.PdfRectangle
 			r.Llx -= para0.fontsize
 			if rectContainsRect(r, para1.PdfRectangle) {
+				// fmt.Printf("\t %.2f %q\n", para1.PdfRectangle, truncate(para1.text(), 50))
 				para0.absorb(para1)
 				absorbed[i1] = struct{}{}
 			}
@@ -295,7 +337,7 @@ func mergWordBags(paraWords []*wordBag) []*wordBag {
 	}
 
 	if len(paraWords) != len(merged)+len(absorbed) {
-		common.Log.Error("mergWordBags: %d->%d absorbed=%d",
+		common.Log.Error("mergWordBags: %d→%d absorbed=%d",
 			len(paraWords), len(merged), len(absorbed))
 	}
 	return merged

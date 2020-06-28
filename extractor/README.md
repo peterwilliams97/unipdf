@@ -61,3 +61,4 @@ TODO
 * Handle diagonal text.
 * Get R to L text extraction working.
 * Get top to bottom text extraction working.
+* Add Type1C font support. We need this to get the correct font metrics.

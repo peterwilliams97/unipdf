@@ -1140,7 +1140,7 @@ func (l *markupList) saveOutputPdf() {
 		mediaBox, err := page.GetMediaBox()
 		if err == nil && page.MediaBox == nil {
 			// Deal with MediaBox inherited from Parent.
-			common.Log.Info("MediaBox: %v -> %v", page.MediaBox, mediaBox)
+			common.Log.Info("MediaBox: %v → %v", page.MediaBox, mediaBox)
 			page.MediaBox = mediaBox
 		}
 		h := mediaBox.Ury
@@ -1189,7 +1189,7 @@ func changeDirExt(dirName, filename, qualifier, extName string) string {
 	}
 	filename = fmt.Sprintf("%s%s", base, extName)
 	path := filepath.Join(dirName, filename)
-	common.Log.Debug("changeDirExt(%q,%q,%q)->%q", dirName, base, extName, path)
+	common.Log.Debug("changeDirExt(%q,%q,%q)→%q", dirName, base, extName, path)
 	return path
 }
 

@@ -53,6 +53,12 @@ func makeTextWords(marks []*textMark, pageSize model.PdfRectangle) []*textWord {
 			if !isTextSpace(text) {
 				newWord.text = text
 				words = append(words, newWord)
+				if verbose {
+					common.Log.Info("word=%s", newWord.String())
+					for i, tm := range newWord.marks {
+						fmt.Printf("%4d: %s\n", i, tm.String())
+					}
+				}
 			}
 			newWord = nil
 		}

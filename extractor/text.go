@@ -480,7 +480,7 @@ func (to *textObject) showTextAdjusted(args *core.PdfObjectArray) error {
 
 // setTextLeading "TL". Set text leading.
 func (to *textObject) setTextLeading(y float64) {
-	if to == nil || to.state == nil {
+	if to == nil {
 		return
 	}
 	to.state.tl = y
@@ -823,7 +823,7 @@ func (to *textObject) renderText(data []byte) error {
 		t := transform.Point{X: (c.X*tfs + state.tc + w) * th}
 		if verboseGeom {
 			common.Log.Info("tfs=%.2f tc=%.2f tw=%.2f th=%.2f", tfs, state.tc, state.tw, th)
-			common.Log.Info("dx,dy=%.3f t0=%.2f t=%.2f", c, t0, t)
+			common.Log.Info("dx,dy=%.3f t0=%.3f t=%.3f", c, t0, t)
 		}
 
 		// td, td0 are t, t0 in matrix form.

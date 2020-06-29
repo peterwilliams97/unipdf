@@ -127,7 +127,7 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 			firstWord := pageWords.firstWord(firstReadingIdx)
 			paraWords := newWordBag(firstWord, pageHeight)
 			pageWords.removeWord(firstWord, firstReadingIdx)
-			if verbose {
+			if verboseBag {
 				common.Log.Info("firstWord ^^^^ %s", firstWord.String())
 			}
 
@@ -151,7 +151,7 @@ func dividePage(pageWords *wordBag, pageHeight float64) []*wordBag {
 
 				// Add words that are within maxIntraDepthGap of `paraWords` in the depth direction.
 				// i.e. Stretch paraWords in the depth direction, vertically for English text.
-				if verbose {
+				if verboseBag {
 					common.Log.Info("paraWords depth %.2f - %.2f maxIntraDepthGap=%.2f maxIntraReadingGap=%.2f",
 						paraWords.minDepth(), paraWords.maxDepth(), maxIntraDepthGap, maxIntraReadingGap)
 				}

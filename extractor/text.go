@@ -835,7 +835,7 @@ func (to *textObject) renderText(data []byte) error {
 		if verboseGeom {
 			common.Log.Info("end:\n\tCTM=%s\n\t tm=%s\n"+
 				"\t td=%s xlat=%s\n"+
-				"\ttd0=%s\n\t → %s xlat=%s",
+				"\ttd0=%s\n\t  → %s xlat=%s",
 				to.gs.CTM, to.tm,
 				td, translation(to.gs.CTM.Mult(to.tm).Mult(td)),
 				td0, end, translation(end))

@@ -90,7 +90,7 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 	}
 	lineDepth := lineDepthR * fontsize
 	n := 0
-	// minDepth0, maxDepth0 := minDepth, maxDepth
+	minDepth0, maxDepth0 := minDepth, maxDepth
 	var newWords []*textWord
 	for _, depthIdx := range b.depthBand(minDepth-lineDepth, maxDepth+lineDepth) {
 		if len(b.bins[depthIdx]) == 0 {
@@ -148,26 +148,19 @@ func (b *wordBag) scanBand(title string, para *wordBag,
 			}
 		}
 	}
-	// if false && len(title) > 0 {
-	// 	// dead := para.Width()*para.Height() > 500.0*400.0
-	// 	common.Log.Notice("scanBand: %s [%.2f %.2f]→[%.2f %.2f] para=%.2f fontsize=%.2f\n\t%q",
-	// 		title,
-	// 		minDepth0, maxDepth0,
-	// 		minDepth, maxDepth,
-	// 		para.PdfRectangle, para.fontsize, truncate(para.text(), 100))
-	// 	for i, word := range newWords {
-	// 		fmt.Printf("    %s\n", word)
-	// 		if i >= 5 && !dead {
-	// 			break
-	// 		}
-	// 	}
-	// 	// if len(newWords) > 0 {
-	// 	// 	fmt.Println()
-	// 	// }
-	// 	// if dead {
-	// 	// 	panic(fmt.Errorf("para=%.2f ", para.PdfRectangle))
-	// 	// }
-	// }
+	if verboseBag && len(title) > 0 {
+		common.Log.Info("scanBand: %s [%.2f %.2f]→[%.2f %.2f] para=%.2f fontsize=%.2f\n\t%q",
+			title,
+			minDepth0, maxDepth0,
+			minDepth, maxDepth,
+			para.PdfRectangle, para.fontsize, truncate(para.text(), 100))
+		for i, word := range newWords {
+			fmt.Printf("    %s\n", word)
+			if i >= 5 {
+				break
+			}
+		}
+	}
 
 	return n
 }
@@ -291,7 +284,7 @@ func mergWordBags(paraWords []*wordBag) []*wordBag {
 	if len(paraWords) <= 1 {
 		return paraWords
 	}
-	if verbose {
+	if verbosePara {
 		common.Log.Info("mergWordBags:")
 	}
 	sort.Slice(paraWords, func(i, j int) bool {
@@ -328,7 +321,9 @@ func mergWordBags(paraWords []*wordBag) []*wordBag {
 			r := para0.PdfRectangle
 			r.Llx -= para0.fontsize
 			if rectContainsRect(r, para1.PdfRectangle) {
-				// fmt.Printf("\t %.2f %q\n", para1.PdfRectangle, truncate(para1.text(), 50))
+				if verbosePara {
+					fmt.Printf("\t %.2f %q\n", para1.PdfRectangle, truncate(para1.text(), 50))
+				}
 				para0.absorb(para1)
 				absorbed[i1] = struct{}{}
 			}

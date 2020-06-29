@@ -197,23 +197,34 @@ func (p *textPara) fontsize() float64 {
 
 // removeDuplicates removes duplicate word fragments such as those used for bolding.
 func (b *wordBag) removeDuplicates() {
+	if verboseParaDup {
+		common.Log.Info("removeDuplicates: %q", b.text())
+	}
 	for _, depthIdx := range b.depthIndexes() {
 		if len(b.bins[depthIdx]) == 0 {
 			continue
 		}
-		word := b.bins[depthIdx][0]
-		delta := maxDuplicateWordR * word.fontsize
-		minDepth := word.depth
+		firstWord := b.bins[depthIdx][0]
+		delta := maxDuplicateWordR * firstWord.fontsize
+		minDepth := firstWord.depth
 		for _, idx := range b.depthBand(minDepth, minDepth+delta) {
 			duplicates := map[*textWord]struct{}{}
 			words := b.bins[idx]
-			for _, w := range words {
-				if w != word && w.text == word.text &&
-					math.Abs(w.Llx-word.Llx) < delta &&
-					math.Abs(w.Urx-word.Urx) < delta &&
-					math.Abs(w.Lly-word.Lly) < delta &&
-					math.Abs(w.Ury-word.Ury) < delta {
-					duplicates[w] = struct{}{}
+			for _, word := range words {
+				if _, ok := duplicates[word]; ok {
+					continue
+				}
+				for _, w := range words {
+					if _, ok := duplicates[w]; ok {
+						continue
+					}
+					if w != word && w.text == word.text &&
+						math.Abs(w.Llx-word.Llx) < delta &&
+						math.Abs(w.Urx-word.Urx) < delta &&
+						math.Abs(w.Lly-word.Lly) < delta &&
+						math.Abs(w.Ury-word.Ury) < delta {
+						duplicates[w] = struct{}{}
+					}
 				}
 			}
 			if len(duplicates) > 0 {

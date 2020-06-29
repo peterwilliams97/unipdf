@@ -9,10 +9,12 @@ package extractor
 const (
 	verbose         = false
 	verboseGeom     = false
+	verboseBag      = false
 	verbosePage     = false
 	verbosePara     = false
-	verboseParaLine = verbosePara && false
+	verboseParaLine = verbosePara && true
 	verboseParaWord = verboseParaLine && false
+	verboseParaDup  = verbosePara && true
 	verboseTable    = false
 )
 

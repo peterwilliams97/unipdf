@@ -24,6 +24,9 @@ const (
 	doRemoveDuplicates  = true
 	doCombineDiacritics = true
 	useEBBox            = false
+	advancedTables      = true
+
+	tableCircumf = 6
 )
 
 // The following constants are the tuning parameter for text extracton

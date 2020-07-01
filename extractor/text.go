@@ -74,7 +74,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 
 	if level > maxFormStack {
 		err := errors.New("form stack overflow")
-		common.Log.Debug("ERROR: extractPageText. recursion level=%d err=%w", level, err)
+		common.Log.Debug("ERROR: extractPageText. recursion level=%d err=%v", level, err)
 		return pageText, state.numChars, state.numMisses, err
 	}
 
@@ -86,7 +86,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	cstreamParser := contentstream.NewContentStreamParser(contents)
 	operations, err := cstreamParser.Parse()
 	if err != nil {
-		common.Log.Debug("ERROR: extractPageText parse failed. err=%w", err)
+		common.Log.Debug("ERROR: extractPageText parse failed. err=%v", err)
 		return pageText, state.numChars, state.numMisses, err
 	}
 

@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	goimage "image"
@@ -33,6 +34,7 @@ import (
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/contentstream/draw"
 	"github.com/unidoc/unipdf/v3/core"
+	"github.com/unidoc/unipdf/v3/extractor"
 	"github.com/unidoc/unipdf/v3/model"
 	"github.com/unidoc/unipdf/v3/model/optimize"
 )
@@ -682,31 +684,45 @@ func TestParagraphChinese(t *testing.T) {
 	}
 
 	font, err := model.NewCompositePdfFontFromTTFFile(testWts11TTFFile)
-	if err != nil {
-		t.Errorf("Fail: %v\n", err)
-		return
-	}
+	require.NoError(t, err)
+
+	// Enable font subsetting for the composite font - embed only needed glyphs
+	// (much smaller file size for large fonts).
+	creator.EnableFontSubsetting(font)
 
 	for _, line := range lines {
 		p := creator.NewParagraph(line)
-
 		p.SetFont(font)
 
 		err = creator.Draw(p)
-		if err != nil {
-			t.Errorf("Fail: %v\n", err)
-			return
-		}
+		require.NoError(t, err)
 	}
 
-	testWriteAndRender(t, creator, "2_p_nihao.pdf")
-	fname := tempFile("2_p_nihao.pdf")
+	fname := testWrite(t, creator, "2_p_nihao.pdf")
 	st, err := os.Stat(fname)
-	if err != nil {
-		t.Errorf("Fail: %v\n", err)
-		return
+	require.NoError(t, err)
+	t.Logf("output size: %d (%.2f MB)", st.Size(), float64(st.Size())/1024/1024)
+
+	// Check if text is extracted correctly (tests the ToUnicode map).
+	f, err := os.Open(fname)
+	require.NoError(t, err)
+	defer f.Close()
+	r, err := model.NewPdfReaderLazy(f)
+	require.NoError(t, err)
+	p, err := r.GetPage(1)
+	require.NoError(t, err)
+	e, err := extractor.New(p)
+	require.NoError(t, err)
+	text, err := e.ExtractText()
+	require.NoError(t, err)
+	expected := strings.Join(lines, "\n")
+	if len(text) > len(expected) {
+		// Trim off extra license data.
+		text = text[:len(expected)]
 	}
-	t.Logf("output size: %d (%d MB)", st.Size(), st.Size()/1024/1024)
+	require.Equal(t, expected, text)
+
+	testRender(t, fname)
 }
 
 // Test paragraph with composite font and various unicode characters.
@@ -714,10 +730,10 @@ func TestParagraphUnicode(t *testing.T) {
 	creator := New()
 
 	font, err := model.NewCompositePdfFontFromTTFFile(testFreeSansTTFFile)
-	if err != nil {
-		t.Errorf("Fail: %v\n", err)
-		return
-	}
+	require.NoError(t, err)
+
+	// Enable font subsetting for the composite font - embed only needed glyphs.
+	creator.EnableFontSubsetting(font)
 
 	texts := []string{
 		"Testing of letters \u010c,\u0106,\u0160,\u017d,\u0110",
@@ -755,10 +771,7 @@ func TestParagraphUnicode(t *testing.T) {
 		p.SetFont(font)
 
 		err = creator.Draw(p)
-		if err != nil {
-			t.Errorf("Fail: %v\n", err)
-			return
-		}
+		require.NoError(t, err)
 	}
 
 	testWriteAndRender(t, creator, "2_p_multi.pdf")
@@ -1028,11 +1041,31 @@ func TestSubchapters(t *testing.T) {
 
 	addHeadersAndFooters(c)
 
-	err := c.WriteToFile(tempFile("3_subchapters.pdf"))
-	if err != nil {
-		t.Errorf("Fail: %v\n", err)
-		return
-	}
+	// Finalize creator in order to get final version of the outlines.
+	require.NoError(t, c.Finalize())
+
+	// Get outline data as JSON.
+	srcJson, err := json.Marshal(c.outline)
+	require.NoError(t, err)
+
+	// Write output file.
+	outputPath := tempFile("3_subchapters.pdf")
+	require.NoError(t, c.WriteToFile(outputPath))
+
+	// Read output file.
+	outputFile, err := os.Open(outputPath)
+	require.NoError(t, err)
+	defer outputFile.Close()
+
+	reader, err := model.NewPdfReader(outputFile)
+	require.NoError(t, err)
+
+	// Compare outlines JSON data.
+	dstOutline, err := reader.GetOutlines()
+	require.NoError(t, err)
+	dstJson, err := json.Marshal(dstOutline)
+	require.NoError(t, err)
+	require.Equal(t, srcJson, dstJson)
 }
 
 // Test creating and drawing a table.
@@ -2980,6 +3013,60 @@ func TestCreatorStable(t *testing.T) {
 	}
 }
 
+func TestPageLabels(t *testing.T) {
+	// Read input file.
+	f, err := os.Open(testPdfTemplatesFile1)
+	require.NoError(t, err)
+	defer f.Close()
+
+	reader, err := model.NewPdfReader(f)
+	require.NoError(t, err)
+	numPages, err := reader.GetNumPages()
+	require.NoError(t, err)
+
+	// Add input file pages to a new creator instance.
+	c := New()
+	nums := core.MakeArray()
+	for i := 0; i < numPages; i++ {
+		page, err := reader.GetPage(i + 1)
+		require.NoError(t, err)
+
+		err = c.AddPage(page)
+		require.NoError(t, err)
+
+		// Generate a page range for each page.
+		// If page index is even, show page label using Roman uppercase numerals.
+		// Otherwise, show page label using decimal Arabic numerals.
+		labelStyle := "R"
+		if i%2 != 0 {
+			labelStyle = "D"
+		}
+		pageRange := core.MakeDict()
+		pageRange.Set(*core.MakeName("S"), core.MakeName(labelStyle))
+		nums.Append(core.MakeInteger(int64(i)))
+		nums.Append(pageRange)
+	}
+
+	// Create page labels dictionary and add it to the creator.
+	genPageLabels := core.MakeDict()
+	genPageLabels.Set(*core.MakeName("Nums"), nums)
+	c.SetPageLabels(genPageLabels)
+
+	// Write output file to buffer.
+	outBuf := bytes.NewBuffer(nil)
+	err = c.Write(outBuf)
+	require.NoError(t, err)
+
+	// Read output file.
+	reader, err = model.NewPdfReader(bytes.NewReader(outBuf.Bytes()))
+	require.NoError(t, err)
+
+	// Retrieve page labels and compare them to the generated page labels.
+	pageLabels, err := reader.GetPageLabels()
+	require.NoError(t, err)
+	require.Equal(t, core.EqualObjects(genPageLabels, pageLabels), true)
+}
+
 var errRenderNotSupported = errors.New("rendering pdf is not supported on this system")
 
 // renderPDFToPNGs uses ghostscript (gs) to render specified PDF file into a set of PNG images (one per page).
@@ -3067,14 +3154,20 @@ func hashFile(file string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func testWriteAndRender(t *testing.T, c *Creator, pname string) {
+func testWriteAndRender(t *testing.T, c *Creator, pname string) string {
+	pname = testWrite(t, c, pname)
+	testRender(t, pname)
+	return pname
+}
+
+func testWrite(t *testing.T, c *Creator, pname string) string {
 	pname = tempFile(pname)
 	err := c.WriteToFile(pname)
 	if err != nil {
 		t.Errorf("Fail: %v\n", err)
-		return
+		return pname
 	}
-	testRender(t, pname)
+	return pname
 }
 
 func testRender(t *testing.T, pdfPath string) {

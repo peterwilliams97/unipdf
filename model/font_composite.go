@@ -9,8 +9,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"math/rand"
+	"os"
 	"sort"
+	"strings"
+
+	"github.com/unidoc/unitype"
 
 	"github.com/unidoc/unipdf/v3/common"
 	"github.com/unidoc/unipdf/v3/core"
@@ -168,13 +174,126 @@ func (font *pdfFontType0) bytesToCharcodes(data []byte) ([]textencoding.CharCode
 	return charcodes, true
 }
 
+// Subset name is `tag+name`.
+func makeSubsetName(name, tag string) string {
+	if strings.Contains(name, "+") {
+		parts := strings.Split(name, "+")
+		if len(parts) == 2 {
+			name = parts[1]
+		}
+	}
+	return tag + "+" + name
+}
+
+// Generates tag for subsetting with 6 random uppercase letters.
+func genSubsetTag() string {
+	letters := "QWERTYUIOPASDFGHJKLZXCVBNM"
+	var buf bytes.Buffer
+	for i := 0; i < 6; i++ {
+		buf.WriteRune(rune(letters[rand.Intn(len(letters))]))
+	}
+	return buf.String()
+}
+
+// subsetRegistered subsets the `font` to only the glyphs that have been registered by encoder.
+// NOTE: Only works for CIDFontType2 (TrueType CID font), no-op otherwise.
+func (font *pdfFontType0) subsetRegistered() error {
+	cidfnt, ok := font.DescendantFont.context.(*pdfCIDFontType2)
+	if !ok {
+		common.Log.Debug("Font not supported for subsetting %T", font.DescendantFont)
+		return nil
+	}
+	if cidfnt == nil {
+		return nil
+	}
+	if cidfnt.fontDescriptor == nil {
+		common.Log.Debug("Missing font descriptor")
+		return nil
+	}
+
+	stream, ok := core.GetStream(cidfnt.fontDescriptor.FontFile2)
+	if !ok {
+		common.Log.Debug("Embedded font object not found -- ABORT subsseting")
+		return errors.New("fontfile2 not found")
+	}
+	decoded, err := core.DecodeStream(stream)
+	if err != nil {
+		return err
+	}
+
+	fnt, err := unitype.Parse(bytes.NewReader(decoded))
+	if err != nil {
+		common.Log.Debug("Error parsing %d byte font", len(stream.Stream))
+		return err
+	}
+
+	tenc, ok := font.encoder.(*textencoding.TrueTypeFontEncoder)
+	if !ok {
+		return fmt.Errorf("unsupported encoder for subsetting: %T", cidfnt.encoder)
+	}
+
+	runes := tenc.RegisteredRunes()
+	subset, err := fnt.SubsetKeepRunes(runes)
+	if err != nil {
+		return err
+	}
+	// Reduce the encoder also.
+	tenc.SubsetRegistered()
+	var buf bytes.Buffer
+	err = subset.Write(&buf)
+	if err != nil {
+		return err
+	}
+
+	// Update info for ToUnicode CMap entry.
+	if font.toUnicodeCmap != nil {
+		codeToUnicode := make(map[cmap.CharCode]rune, len(runes))
+		for _, r := range runes {
+			cc, ok := tenc.RuneToCharcode(r)
+			if !ok {
+				continue
+			}
+			codeToUnicode[cmap.CharCode(cc)] = r
+		}
+		font.toUnicodeCmap = cmap.NewToUnicodeCMap(codeToUnicode)
+	}
+
+	stream, err = core.MakeStream(buf.Bytes(), core.NewFlateEncoder())
+	if err != nil {
+		return err
+	}
+	cidfnt.fontDescriptor.FontFile2 = stream
+
+	// Set subset name.
+	tag := genSubsetTag()
+
+	if len(font.basefont) > 0 {
+		font.basefont = makeSubsetName(font.basefont, tag)
+	}
+	if len(cidfnt.basefont) > 0 {
+		cidfnt.basefont = makeSubsetName(cidfnt.basefont, tag)
+	}
+	if len(font.name) > 0 {
+		font.name = makeSubsetName(font.name, tag)
+	}
+	if cidfnt.fontDescriptor != nil {
+		fname, ok := core.GetName(cidfnt.fontDescriptor.FontName)
+		if ok && len(fname.String()) > 0 {
+			fname := makeSubsetName(fname.String(), tag)
+			cidfnt.fontDescriptor.FontName = core.MakeName(fname)
+		}
+	}
+
+	return nil
+}
+
 // ToPdfObject converts the font to a PDF representation.
 func (font *pdfFontType0) ToPdfObject() core.PdfObject {
 	if font.container == nil {
 		font.container = &core.PdfIndirectObject{}
 	}
-	d := font.baseFields().asPdfObjectDictionary("Type0")
 
+	d := font.baseFields().asPdfObjectDictionary("Type0")
 	font.container.PdfObject = d
 
 	if font.Encoding != nil {
@@ -569,16 +688,33 @@ func parseCIDFontWidthsArray(w core.PdfObject) (map[textencoding.CharCode]float6
 
 // NewCompositePdfFontFromTTFFile loads a composite font from a TTF font file. Composite fonts can
 // be used to represent unicode fonts which can have multi-byte character codes, representing a wide
-// range of values.
+// range of values. They are often used for symbolic languages, including Chinese, Japanese and Korean.
 // It is represented by a Type0 Font with an underlying CIDFontType2 and an Identity-H encoding map.
 // TODO: May be extended in the future to support a larger variety of CMaps and vertical fonts.
+// NOTE: For simple fonts, use NewPdfFontFromTTFFile.
 func NewCompositePdfFontFromTTFFile(filePath string) (*PdfFont, error) {
-	// Load the truetype font data.
-	ttfBytes, err := ioutil.ReadFile(filePath)
+	f, err := os.Open(filePath)
 	if err != nil {
-		common.Log.Debug("ERROR: while reading ttf font: %v", err)
+		common.Log.Debug("ERROR: opening file: %v", err)
 		return nil, err
 	}
+	defer f.Close()
+	return NewCompositePdfFontFromTTF(f)
+}
+
+// NewCompositePdfFontFromTTF loads a composite TTF font. Composite fonts can
+// be used to represent unicode fonts which can have multi-byte character codes, representing a wide
+// range of values. They are often used for symbolic languages, including Chinese, Japanese and Korean.
+// It is represented by a Type0 Font with an underlying CIDFontType2 and an Identity-H encoding map.
+// TODO: May be extended in the future to support a larger variety of CMaps and vertical fonts.
+// NOTE: For simple fonts, use NewPdfFontFromTTF.
+func NewCompositePdfFontFromTTF(r io.ReadSeeker) (*PdfFont, error) {
+	ttfBytes, err := ioutil.ReadAll(r)
+	if err != nil {
+		common.Log.Debug("ERROR: Unable to read font contents: %v", err)
+		return nil, err
+	}
+
 	ttf, err := fonts.TtfParse(bytes.NewReader(ttfBytes))
 	if err != nil {
 		common.Log.Debug("ERROR: while loading ttf font: %v", err)
@@ -694,7 +830,17 @@ func NewCompositePdfFontFromTTFFile(filePath string) (*PdfFont, error) {
 		encoder:  ttf.NewEncoder(),
 	}
 
-	type0.toUnicodeCmap = ttf.MakeToUnicode()
+	// Generate CMap for the Type 0 font, which is the inverse of ttf.Chars.
+	if len(ttf.Chars) > 0 {
+		codeToUnicode := make(map[cmap.CharCode]rune, len(ttf.Chars))
+		for r, gid := range ttf.Chars {
+			cid := cmap.CharCode(gid)
+			if rn, ok := codeToUnicode[cid]; !ok || (ok && rn > r) {
+				codeToUnicode[cid] = r
+			}
+		}
+		type0.toUnicodeCmap = cmap.NewToUnicodeCMap(codeToUnicode)
+	}
 
 	// Build Font.
 	font := PdfFont{

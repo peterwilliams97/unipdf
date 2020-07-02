@@ -21,6 +21,11 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+var (
+	errType  = errors.New("type check error")
+	errRange = errors.New("range check error")
+)
+
 // ExtractText processes and extracts all text data in content streams and returns as a string.
 // It takes into account character encodings in the PDF file, which are decoded by
 // CharcodeBytesToUnicode.
@@ -42,7 +47,7 @@ func (e *Extractor) ExtractTextWithStats() (extracted string, numChars int, numM
 
 // ExtractPageText returns the text contents of `e` (an Extractor for a page) as a PageText.
 func (e *Extractor) ExtractPageText() (*PageText, int, int, error) {
-	pt, numChars, numMisses, err := e.extractPageText(e.contents, e.resources, 0)
+	pt, numChars, numMisses, err := e.extractPageText(e.contents, e.resources, transform.IdentityMatrix(), 0)
 	if err != nil {
 		return nil, numChars, numMisses, err
 	}
@@ -55,7 +60,7 @@ func (e *Extractor) ExtractPageText() (*PageText, int, int, error) {
 // extractPageText returns the text contents of content stream `e` and resouces `resources` as a
 // PageText.
 // This can be called on a page or a form XObject.
-func (e *Extractor) extractPageText(contents string, resources *model.PdfPageResources, level int) (
+func (e *Extractor) extractPageText(contents string, resources *model.PdfPageResources, parentCTM transform.Matrix, level int) (
 	*PageText, int, int, error) {
 	common.Log.Trace("extractPageText: level=%d", level)
 	pageText := &PageText{}
@@ -113,7 +118,10 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					pageText.marks = append(pageText.marks, to.marks...)
 				}
 				inTextObj = true
-				to = newTextObject(e, resources, gs, &state, &fontStack)
+
+				graphicsState := gs
+				graphicsState.CTM = parentCTM.Mult(graphicsState.CTM)
+				to = newTextObject(e, resources, graphicsState, &state, &fontStack)
 			case "ET": // End Text
 				// End text object, discarding text matrix. If the current
 				// text object contains text marks, they are added to the
@@ -186,7 +194,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 				to.nextLine()
 				return to.showText(charcodes)
 			case `"`: // Set word and character spacing, move to next line, and show text.
-				if ok, err := to.checkOp(op, 1, true); !ok {
+				if ok, err := to.checkOp(op, 3, true); !ok {
 					common.Log.Debug("ERROR: \" err=%v", err)
 					return err
 				}
@@ -291,18 +299,28 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					return err
 				}
 				to.setHorizScaling(y)
-
 			case "Do":
 				// Handle XObjects by recursing through form XObjects.
-				name := *op.Params[0].(*core.PdfObjectName)
-				_, xtype := resources.GetXObjectByName(name)
+				if len(op.Params) == 0 {
+					common.Log.Debug("ERROR: expected XObject name operand for Do operator. Got %+v.", op.Params)
+					return errRange
+				}
+
+				// Get XObject name.
+				name, ok := core.GetName(op.Params[0])
+				if !ok {
+					common.Log.Debug("ERROR: invalid Do operator XObject name operand: %+v.", op.Params[0])
+					return errType
+				}
+
+				_, xtype := resources.GetXObjectByName(*name)
 				if xtype != model.XObjectTypeForm {
 					break
 				}
 				// Only process each form once.
-				formResult, ok := e.formResults[string(name)]
+				formResult, ok := e.formResults[name.String()]
 				if !ok {
-					xform, err := resources.GetXObjectFormByName(name)
+					xform, err := resources.GetXObjectFormByName(*name)
 					if err != nil {
 						common.Log.Debug("ERROR: %v", err)
 						return err
@@ -316,14 +334,15 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					if formResources == nil {
 						formResources = resources
 					}
+
 					tList, numChars, numMisses, err := e.extractPageText(string(formContent),
-						formResources, level+1)
+						formResources, parentCTM.Mult(gs.CTM), level+1)
 					if err != nil {
 						common.Log.Debug("ERROR: %v", err)
 						return err
 					}
 					formResult = textResult{*tList, numChars, numMisses}
-					e.formResults[string(name)] = formResult
+					e.formResults[name.String()] = formResult
 				}
 
 				pageText.marks = append(pageText.marks, formResult.pageText.marks...)
@@ -683,7 +702,7 @@ func (to *textObject) reset() {
 func (to *textObject) renderText(data []byte) error {
 	font := to.getCurrentFont()
 	charcodes := font.BytesToCharcodes(data)
-	runes, numChars, numMisses := font.CharcodesToUnicodeWithStats(charcodes)
+	texts, numChars, numMisses := font.CharcodesToStrings(charcodes)
 	if numMisses > 0 {
 		common.Log.Debug("renderText: numChars=%d numMisses=%d", numChars, numMisses)
 	}
@@ -702,18 +721,18 @@ func (to *textObject) renderText(data []byte) error {
 		spaceMetrics, _ = model.DefaultFont().GetRuneMetrics(' ')
 	}
 	spaceWidth := spaceMetrics.Wx * glyphTextRatio
-	common.Log.Trace("spaceWidth=%.2f text=%q font=%s fontSize=%.1f", spaceWidth, runes, font, tfs)
+	common.Log.Trace("spaceWidth=%.2f text=%q font=%s fontSize=%.2f", spaceWidth, texts, font, tfs)
 
 	stateMatrix := transform.NewMatrix(
 		tfs*th, 0,
 		0, tfs,
 		0, state.trise)
 
-	common.Log.Trace("renderText: %d codes=%+v runes=%q", len(charcodes), charcodes, runes)
+	common.Log.Trace("renderText: %d codes=%+v runes=%q", len(charcodes), charcodes, len(texts))
 
-	for i, r := range runes {
-		// TODO(peterwilliams97): Need to find and fix cases where this happens.
-		if r == '\x00' {
+	for i, text := range texts {
+		r := []rune(text)
+		if len(r) == 1 && r[0] == '\x00' {
 			continue
 		}
 
@@ -727,14 +746,14 @@ func (to *textObject) renderText(data []byte) error {
 
 		// w is the unscaled movement at the end of a word.
 		w := 0.0
-		if r == ' ' {
+		if string(r) == " " {
 			w = state.tw
 		}
 
 		m, ok := font.GetCharMetrics(code)
 		if !ok {
 			common.Log.Debug("ERROR: No metric for code=%d r=0x%04x=%+q %s", code, r, r, font)
-			return errors.New("no char metrics")
+			return fmt.Errorf("no char metrics: font=%s code=%d", font.String(), code)
 		}
 
 		// c is the character size in unscaled text units.
@@ -755,7 +774,7 @@ func (to *textObject) renderText(data []byte) error {
 		common.Log.Trace("m=%s c=%+v t0=%+v td0=%s trm0=%s", m, c, t0, td0, td0.Mult(to.tm).Mult(to.gs.CTM))
 
 		mark := to.newTextMark(
-			string(r),
+			text,
 			trm,
 			translation(to.gs.CTM.Mult(to.tm).Mult(td0)),
 			math.Abs(spaceWidth*trm.ScalingFactorX()),
@@ -1119,7 +1138,7 @@ func (tm TextMark) String() string {
 func (pt *PageText) computeViews() {
 	fontHeight := pt.height()
 	// We sort with a y tolerance to allow for subscripts, diacritics etc.
-	tol := minFloat(fontHeight*0.2, 5.0)
+	tol := minFloat(fontHeight*0.19, 5.0)
 	common.Log.Trace("ToTextLocation: %d elements fontHeight=%.1f tol=%.1f", len(pt.marks), fontHeight, tol)
 	// Uncomment the 2 following Debug statements to see the effects of sorting.
 	// common.Log.Debug("computeViews: Before sorting %s", pt)

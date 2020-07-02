@@ -51,9 +51,7 @@ var doStress bool
 func init() {
 	flag.BoolVar(&doStress, "extractor-stresstest", false, "Run text extractor stress tests.")
 	common.SetLogger(common.NewConsoleLogger(common.LogLevelInfo))
-	if flag.Lookup("test.v") != nil {
-		isTesting = true
-	}
+	isTesting = true
 }
 
 // TestTextExtractionFragments tests text extraction on the PDF fragments in `fragmentTests`.
@@ -314,6 +312,11 @@ var fileExtractionTests = []struct {
 			4: []string{
 				"timestamps for certificates they then don’t log",
 				`The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",`},
+		},
+	},
+	{filename: "Saudi.pdf",
+		pageTerms: map[int][]string{
+			10: []string{"الله"},
 		},
 	},
 	// TODO(peterwilliams97): Reinstate these 2 tests when diacritic combination is fixed.

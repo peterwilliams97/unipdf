@@ -62,3 +62,51 @@ TODO
 * Get R to L text extraction working.
 * Get top to bottom text extraction working.
 * Add Type1C font support. We need this to get the correct font metrics.
+
+tables/Audit.pdf          p1
+tables/backlog.pdf
+tables/bare.pdf
+tables/brain.pdf          p3,4,6
+tables/chart_aria.pdf     p1
+tables/CNRE.pdf           p5,13   Look for paras that overlap table
+tables/decd-term-calendar-2018.pdf p1
+tables/diagrams.pdf p1
+tables/document_metrics.pdf p1
+tables/Early_Delayed.pdf    p7  false +ve
+       EES_Hive.pdf         p1
+       email.pdf            p1
+       EMEA-initiatives-2.pdf p1
+       gates.pdf            p4 top-left cell is empty
+       grow.pdf             p28 missed
+                            p29 fragmented
+       guild.pdf            p1 missed
+                            p2 incomplete
+      Immunology.pdf        p1 false +ves
+      initiatives.pdf        p4,17,21 false +ves
+                             p10 complex table structure
+                             p25 part table
+      Jeremy.pdf              p1 fragments
+      MF_HP.pdf               p1 fragments
+      MFD-models.pdf          p1 fragments
+      Minerals_to_Metals.pdf  p1 fragments
+      multiverse.pdf          p1
+      onPremOCR.pdf           p1 false +ve
+      optimized MFD-small.pdf p11 overlapping tables?
+      Universal.pdf           p1 partial table
+      Partner.pdf             p1 miss most of table
+      pizza.pdf               p1 partial tables
+      SmokeTesting.pdf        p1 partial tables
+      Product.pdf             p1 partial tables
+      pvc.pdf                 p4 false +ve
+      readsoft-invoices.pdf   p2 partial
+      results5.pdf            p1 partial
+      Reviewers.pdf           p1 partial
+      sanitizer.pdf           p2 partial + false +ve
+      SANS.pdf                p1 partial
+      Smoke Test Cases.pdf    p1 partial
+      thought.pdf             p1 partial
+      TimeNet.pdf             p5 false +ve
+      unicodeexample.pdf      p2 partial
+      Universal Print Launch Plan.pdf p1 partial
+      Universal.pdf          Nothing detected
+

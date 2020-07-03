@@ -27,6 +27,8 @@ const (
 	advancedTables      = true
 
 	tableCircumf = 6
+	tableYGapR   = 3.0
+	tableBigText = 200
 )
 
 // The following constants are the tuning parameter for text extracton

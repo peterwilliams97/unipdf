@@ -7,6 +7,7 @@ package extractor
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"unicode/utf8"
 
@@ -75,7 +76,7 @@ func (paras paraList) findTables() []*textTable {
 			table.markCells()
 		} else {
 			candidate := para.sparseCandidate()
-			if candidate == nil {
+			if candidate == nil || !candidate.valid(true) {
 				continue
 			}
 			candidate.markCells()
@@ -238,9 +239,17 @@ func (para *textPara) sparseCandidate() *tableCandidate {
 	if b.taken() || c.taken() {
 		return nil
 	}
+	if c.Ury < a.Lly-tableYGapR*a.fontsize() {
+		common.Log.Info("sparseCandidate: gap\n\ta=%s\n\tc=%s", a, c)
+		return nil
+	}
 	d := b.below
 	if d.taken() || d != c.right {
 		d = nil
+	}
+	if d != nil && d.Ury < b.Lly-tableYGapR*b.fontsize() {
+		common.Log.Info("sparseCandidate: gap\n\tb=%s\n\td=%s", a, c)
+		return nil
 	}
 
 	// Look for top and left of up to 4 elements
@@ -282,38 +291,28 @@ func (para *textPara) sparseCandidate() *tableCandidate {
 	candidate := &tableCandidate{
 		w:        w,
 		h:        h,
+		wV:       w,
+		hV:       h,
 		top:      top,
 		left:     left,
 		right:    right,
 		bottom:   bottom,
+		bottomV:  bottom,
 		occupied: occupied,
 	}
 	candidate.validate()
 	candidate.log("atom")
 	candidates := candidate.growTableSparse()
-	best := candidates.best()
+	best := candidates.best(true)
 	if best == nil {
 		return nil
 	}
 	if best.w+best.h < tableCircumf {
-		panic(best)
+		// panic(best)
 		return nil
 	}
 	return best
 }
-
-// func (t *tableCandidate) valid() bool {
-// 	if t.w+t.h < tableCircumf {
-// 		return false
-// 	}
-// 	rowCounts := make([]int, t.h)
-// 	colCounts := make([]int, t.w)
-// 	for y := 0; y < t.y; y++ {
-// 		for x := 0; x < t.w; x++ {
-// 			cell := t.toTable().getDown()
-// 		}
-// 	}
-// }
 
 // growTable grows `t` to the largest w x h it can while remaining a valid table.
 // It repeatedly tries to extend by one row and/or column
@@ -322,46 +321,48 @@ func (para *textPara) sparseCandidate() *tableCandidate {
 //    - right.
 func (t *tableCandidate) growTableSparse() candidateList {
 	candidates := candidateList{t}
-	for goingDown, goingRight := true, true; goingDown || goingRight; {
+	var wentDown, wentRight bool
+	for goingDown, goingRight := true, true; goingDown || goingRight; goingDown, goingRight = wentDown, wentRight {
 		common.Log.Info("-growTableSparse: %d candidates goingDown=%t goingRight=%t",
 			len(candidates), goingDown, goingRight)
 		for _, c := range candidates {
+			wentDown, wentRight = false, false
 			c.validate()
 			if goingDown {
-				down := c.growDown()
-				if down != nil {
-					down.validate()
+				if down := c.growDown(); down != nil {
 					if goingRight {
 						downRight := down.growRight()
-						if downRight != nil {
-							downRight.validate()
+						if downRight != nil && downRight.valid(false) {
 							downRight.log("downRight")
 							candidates.add(downRight)
+							wentDown, wentRight = true, true
 							continue
 						}
-					} else {
+					}
+					if down.valid(false) {
 						candidates.add(down)
 						down.log("down")
+						wentDown = true
 					}
-				} else {
-					common.Log.Info("done down")
-					goingDown = false
 				}
 			}
 			if goingRight {
-				right := c.growRight()
-				if right != nil {
-					right.validate()
+				if right := c.growRight(); right != nil && right.valid(false) {
 					right.log("right")
 					candidates.add(right)
-				} else {
-					common.Log.Info("done right")
-					goingRight = false
+					wentRight = true
 				}
 			}
 		}
-		common.Log.Info("+growTableSparse: %d candidates goingDown=%t goingRight=%t",
-			len(candidates), goingDown, goingRight)
+		bestStr := ""
+		{
+			best := candidates.best(false)
+			if best != nil {
+				bestStr = best.String()
+			}
+		}
+		common.Log.Info("+growTableSparse: %d candidates goingDown=%t goingRight=%t %s",
+			len(candidates), goingDown, goingRight, bestStr)
 	}
 	return candidates
 }
@@ -386,24 +387,31 @@ func (cl *candidateList) add(candidate *tableCandidate) {
 			bestH = append(bestH, c)
 		}
 	}
-	cellW := bestW[0]
-	cellH := bestH[0]
+	wBestH := bestW[0].h
+	hBestW := bestH[0].w
 	for _, c := range bestH[1:] {
-		if c.w > cellH.w {
-			cellH = c
+		if c.w > hBestW {
+			hBestW = c.w
 		}
 	}
 	for _, c := range bestW[1:] {
-		if c.h > cellW.h {
-			cellW = c
+		if c.h > wBestH {
+			wBestH = c.h
 		}
 	}
 	var survivors candidateList
-	if cellH == cellW {
-		survivors = candidateList{cellW}
-	} else {
-		survivors = candidateList{cellW, cellH}
+	for _, c := range *cl {
+		if c.w == w && c.h == wBestH ||
+			c.h == h && c.w == hBestW ||
+			c.w > hBestW && c.h > wBestH {
+			survivors = append(survivors, c)
+		}
 	}
+	// if cellH == cellW {
+	// 	survivors = candidateList{cellW}
+	// } else {
+	// 	survivors = candidateList{cellW, cellH}
+	// }
 	*cl = survivors
 	common.Log.Info("add ----------- %d survivors", len(survivors))
 	for i, c := range survivors {
@@ -411,7 +419,21 @@ func (cl *candidateList) add(candidate *tableCandidate) {
 	}
 }
 
-func (cl *candidateList) best() *tableCandidate {
+func (cl *candidateList) best(final bool) *tableCandidate {
+	if final {
+		for _, c := range *cl {
+			if c.h != c.hV {
+				c.h = c.hV
+				c.left = c.left[:c.h]
+				c.right = c.right[:c.h]
+				c.bottom = c.bottomV
+				if len(c.bottomV) != c.w {
+					common.Log.Error("inconsisent: %s", c)
+					return nil
+				}
+			}
+		}
+	}
 	best := (*cl)[0]
 	for _, c := range (*cl)[1:] {
 		betterW := c.w > best.w
@@ -430,12 +452,14 @@ type candidateList []*tableCandidate
 
 // tableCandidate is a candidate for a new sparse table.
 type tableCandidate struct {
-	w, h     int      // Width and height of table in cells
+	w, h     int      // Width and height of table in cells.
+	wV, hV   int      // Validated width and height,
 	top      paraList // Top row of table. This must be dense.
 	left     paraList // Left column of table. This must be dense.
 	right    paraList // Right-most occupied calls in each row.
 	bottom   paraList // Bottom-most occupied calls in each column.
-	occupied int      // Number of occupied cells
+	bottomV  paraList // Validated `bottom`.
+	occupied int      // Number of occupied cells.
 }
 
 func (t *tableCandidate) String() string {
@@ -460,14 +484,16 @@ func (t *tableCandidate) growDown() *tableCandidate {
 		if cell == nil {
 			break
 		}
-
+		if cell.Ury < t.bottom[x].Lly-tableYGapR*t.bottom[x].fontsize() {
+			break
+		}
 		cells[x] = cell
 		cell0 = cell
 		n++
 	}
 	bottom := t.bottom.update(cells)
 	left := append(t.left, bottom[0])
-	right := append(t.right, bottom[t.w-1])
+	right := append(t.right, cell0)
 	c := &tableCandidate{
 		w:        t.w,
 		h:        t.h + 1,
@@ -475,7 +501,11 @@ func (t *tableCandidate) growDown() *tableCandidate {
 		top:      t.top,
 		right:    right,
 		bottom:   bottom,
+		bottomV:  t.bottom,
 		occupied: t.occupied + n,
+	}
+	if len(c.bottomV) != c.w {
+		panic(c)
 	}
 	c.validate()
 	return c
@@ -545,33 +575,139 @@ func (t *tableCandidate) validate() {
 	if len(t.right) != t.h {
 		panic(t)
 	}
+	for x, cell := range t.top {
+		if cell == nil {
+			panic(fmt.Errorf("top: x=%d t=%s", x, t.String()))
+		}
+	}
+	for x, cell := range t.bottom {
+		if cell == nil {
+			panic(fmt.Errorf("bottom: x=%d t=%s", x, t.String()))
+		}
+	}
+	for y, cell := range t.left {
+		if cell == nil {
+			panic(fmt.Errorf("left: x=%d t=%s", y, t.String()))
+		}
+	}
+	for y, cell := range t.right {
+		if cell == nil {
+			panic(fmt.Errorf("right: x=%d t=%s", y, t.String()))
+		}
+	}
 	for x, cell0 := range t.top {
 		cell := cell0
 		for y := 0; ; y++ {
-			if cell == nil {
-				panic(fmt.Errorf("x=%d y=%d t=%s", x, y, t.String()))
-			}
-			if cell == t.bottom[x] {
+			if cell == nil || cell == t.bottom[x] {
 				break
 			}
+			if y >= t.h {
+				t.log("bad col")
+				panic(fmt.Errorf("x=%d y=%d t=%s", x, y, t.String()))
+			}
+
 			cell = cell.below
+		}
+	}
+	for y, cell0 := range t.left {
+		cell := cell0
+		for x := 0; ; x++ {
+			if cell == nil || cell == t.right[y] {
+				break
+			}
+			if x >= t.w {
+				panic(fmt.Errorf("x=%d y=%d t=%s", x, y, t.String()))
+			}
+
+			cell = cell.right
 		}
 	}
 }
 
+func (c *tableCandidate) valid(final bool) bool {
+	c.validate()
+	w, h := c.w, c.h
+	if w+h < tableCircumf {
+		if final {
+			return false
+		}
+		return true
+	}
+	table := c.toTable()
+	c.validate()
+	if table == nil {
+		common.Log.Notice("valid: NO TABLE: %s", c)
+		return false
+	}
+	rowCounts := make([]int, h)
+	colCounts := make([]int, w)
+	numBig := 0
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			cell := table.get(x, y)
+			if cell != nil {
+				rowCounts[y]++
+				colCounts[x]++
+				if len(cell.text()) > tableBigText {
+					common.Log.Info("BIG: %d %d %s", numBig, len(cell.text()), cell)
+					numBig++
+				}
+			}
+		}
+	}
+	c.validate()
+	maxBig := minInt(int(math.Round(float64(w*h)*0.2)), 5)
+	if numBig > maxBig {
+		common.Log.Notice("valid: numBig=%d > maxBig=%d: %s", numBig, maxBig, c)
+		return false
+	}
+	minRow := 2
+	minCol := 2
+	under := 0
+	lastEmpty := false
+	for y := 0; y < h; y++ {
+		empty := rowCounts[y] < minRow
+		if empty {
+			under++
+			if lastEmpty || under > (y+1)/2 {
+				common.Log.Notice("valid: lastEmpty=%t || under=%d > (y=%d+1)/2: %s",
+					lastEmpty, under, y, c)
+				return false
+			}
+		} else {
+			c.hV = y + 1
+		}
+		lastEmpty = empty
+	}
+	for x := 0; x < w; x++ {
+		if colCounts[x] < minCol {
+			common.Log.Notice("valid:  colCounts[x] < minCol: %s", c)
+			return false
+		}
+	}
+	return true
+}
+
 func (t *tableCandidate) toTable() *textTable {
 	table := textTable{w: t.w, h: t.h, cells: map[uint64]*textPara{}}
-	common.Log.Info("toTable: %s top=%d left=%d", table.String(), len(t.top), len(t.left))
+	// common.Log.Info("toTable: %s top=%d left=%d", table.String(), len(t.top), len(t.left))
 	t.validate()
 
-	for y, cell := range t.top {
-		fmt.Printf("%4d: %p %s\n", y, cell, cell)
-	}
+	// for y, cell := range t.top {
+	// 	// fmt.Printf("%4d: %p %s\n", y, cell, cell)
+	// 	if cell == nil {
+	// 		panic("top")
+	// 	}
+	// }
 
-	left := t.left
+	left := make(paraList, len(t.left))
+	copy(left, t.left)
 	cellY := map[*textPara]int{}
 	for y, cell := range t.left {
-		fmt.Printf("%4d: %p %s\n", y, cell, cell)
+		// fmt.Printf("%4d: %p %s\n", y, cell, cell)
+		if cell == nil {
+			panic("left")
+		}
 		if _, ok := cellY[cell]; ok {
 			panic("duplicate")
 		}
@@ -581,14 +717,14 @@ func (t *tableCandidate) toTable() *textTable {
 	complete := map[uint64]bool{}
 
 	for x, cell := range t.top {
-		fmt.Printf("    x=%d\n\t    top=%s\n\t bottom=%s\n", x, cell, t.bottom[x])
+		// fmt.Printf("    x=%d\n\t    top=%s\n\t bottom=%s\n", x, cell, t.bottom[x])
 		c := cell
 		if y := cellY[c]; y != 0 {
 			panic("first index")
 		}
 		for {
 			y := cellY[c]
-			fmt.Printf("%6d %2d: %s\n", x, y, c)
+			// fmt.Printf("%6d %2d: %s\n", x, y, c)
 			{
 				i := cellIndex(x, y)
 				if _, ok := complete[i]; ok {
@@ -604,7 +740,7 @@ func (t *tableCandidate) toTable() *textTable {
 			}
 
 			if c == t.bottom[x] {
-				fmt.Printf("\tbottom\n")
+				// fmt.Printf("\tbottom\n")
 				break
 			}
 			c = c.below
@@ -614,6 +750,20 @@ func (t *tableCandidate) toTable() *textTable {
 }
 
 func (t *tableCandidate) log(title string) {
+	common.Log.Info("tableCandidate: %s %s **********************", title, t)
+	log := func(name string, paras paraList) {
+		texts := make([]string, len(paras))
+		for i, p := range paras {
+			texts[i] = truncate(p.text(), 30)
+		}
+		fmt.Printf("\t%s: %q\n", name, texts)
+		// paras.log(fmt.Sprintf("%s - %s", title, name))
+	}
+	log("   top", t.top)
+	log("bottom", t.bottom)
+	log("  left", t.left)
+	log(" right", t.right)
+
 	return
 	common.Log.Info("XXXX: %s: %d x %d top=%d left=%d", title, t.w, t.h, len(t.top), len(t.left))
 	t.validate()

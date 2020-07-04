@@ -70,6 +70,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	state := newTextState(e.mediaBox)
 	var savedStates stateStack
 	to := newTextObject(e, resources, contentstream.GraphicsState{}, &state, &savedStates)
+	ss := shapesState{parentCTM: parentCTM}
 	var inTextObj bool
 
 	if level > maxFormStack {
@@ -304,8 +305,96 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					return err
 				}
 				to.setHorizScaling(y)
-			case "Do":
-				// Handle XObjects by recursing through form XObjects.
+
+			//
+			// Path operators.
+			//
+
+			case "cm": // Update CTM
+				ss.ctm = gs.CTM
+			case "m": // Move to.
+				if len(op.Params) != 2 {
+					common.Log.Debug("WARN: error while processing `m` operator: %v. Output may be incorrect.",
+						model.ErrRange)
+					return nil
+				}
+				xy, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					return err
+				}
+				common.Log.Debug("Move to: %.2f", xy)
+				ss.moveTo(xy[0], xy[1])
+			case "l": // Line to.
+				if len(op.Params) != 2 {
+					common.Log.Debug("WARN: error while processing `l` operator: %v. Output may be incorrect.",
+						model.ErrRange)
+					return nil
+				}
+				xy, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					return err
+				}
+				ss.lineTo(xy[0], xy[1])
+			case "c": // Cubic bezier.
+				if len(op.Params) != 6 {
+					return model.ErrRange
+				}
+				cbp, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					return err
+				}
+				common.Log.Debug("Cubic bezier params: %.2f", cbp)
+				ss.cubicTo(cbp[0], cbp[1], cbp[2], cbp[3], cbp[4], cbp[5])
+			case "v", "y": // Cubic bezier.
+				if len(op.Params) != 4 {
+					return model.ErrRange
+				}
+				cbp, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					return err
+				}
+				common.Log.Debug("Cubic bezier params: %.2f", cbp)
+				ss.quadraticTo(cbp[0], cbp[1], cbp[2], cbp[3])
+			case "h": // Close current subpath.
+				ss.closePath()
+			case "re": // Rectangle.
+				if len(op.Params) != 4 {
+					return model.ErrRange
+				}
+				xywh, err := core.GetNumbersAsFloat(op.Params)
+				if err != nil {
+					panic(err)
+					return err
+				}
+				ss.drawRectangle(xywh[0], xywh[1], xywh[2], xywh[3])
+				ss.closePath()
+			case "S": // Stroke
+				ss.stroke(&pageText.strokes)
+				ss.clearPath()
+			case "s": // Close and stroke.
+				ss.closePath()
+				ss.stroke(&pageText.strokes)
+				ss.clearPath()
+			case "F": // Fill
+				ss.fill(&pageText.fills)
+				ss.clearPath()
+			case "f": // Close and fill.
+				ss.closePath()
+				ss.fill(&pageText.fills)
+				ss.clearPath()
+			case "B", "B*": // Fill then stroke the path. "B" non-zero winding rule. "B*" odd-even
+				ss.fill(&pageText.fills)
+				ss.stroke(&pageText.strokes)
+				ss.clearPath()
+			case "b", "b*": //  Close, fill and stroke the path  "b" non-zero winding rule. "b*" odd-even
+				ss.closePath()
+				ss.fill(&pageText.fills)
+				ss.stroke(&pageText.strokes)
+				ss.clearPath()
+			case "n": // End the current path without filling or stroking.
+				ss.clearPath()
+
+			case "Do": // Handle XObjects by recursing through form XObjects.
 				if len(op.Params) == 0 {
 					common.Log.Debug("ERROR: expected XObject name operand for Do operator. Got %+v.", op.Params)
 					return core.ErrRangeError
@@ -369,6 +458,32 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	if err != nil {
 		common.Log.Debug("ERROR: Processing: err=%v", err)
 	}
+
+	strokeRulings := makeStrokeGrids(pageText.strokes)
+	fillRulings := makeFillGrids(pageText.fills)
+
+	if len(strokeRulings) > 0 {
+		common.Log.Notice("Strokes: %d", len(pageText.strokes))
+		common.Log.Notice("Stroke Grids: %d", len(strokeRulings))
+		for i, g := range strokeRulings {
+			fmt.Printf("%4d: %d rulings\n", i, len(g))
+			for i, v := range g {
+				fmt.Printf("%8d: %s\n", i, v)
+			}
+		}
+	}
+
+	if len(fillRulings) > 0 {
+		common.Log.Notice("Fills: %d", len(pageText.fills))
+		common.Log.Notice("Fill Grids: %d", len(fillRulings))
+		for i, g := range fillRulings {
+			fmt.Printf("%4d: %d rulings\n", i, len(g))
+			for i, v := range g {
+				fmt.Printf("%8d: %s\n", i, v)
+			}
+		}
+	}
+
 	return pageText, state.numChars, state.numMisses, err
 }
 
@@ -404,7 +519,7 @@ type textResult struct {
 // Move to the start of the next line, offset from the start of the current line by (tx, ty).
 // tx and ty are in unscaled text space units.
 func (to *textObject) moveText(tx, ty float64) {
-	to.moveTo(tx, ty)
+	to.moveLP(tx, ty)
 }
 
 // moveTextSetLeading "TD" Move text location and set leading.
@@ -415,7 +530,7 @@ func (to *textObject) moveText(tx, ty float64) {
 //  tx ty Td
 func (to *textObject) moveTextSetLeading(tx, ty float64) {
 	to.state.tl = -ty
-	to.moveTo(tx, ty)
+	to.moveLP(tx, ty)
 }
 
 // nextLine "T*"" Moves start of text line to next text line
@@ -425,7 +540,7 @@ func (to *textObject) moveTextSetLeading(tx, ty float64) {
 // here because Tl is the text leading expressed as a positive number. Going to the next line
 // entails decreasing the y coordinate. (page 250)
 func (to *textObject) nextLine() {
-	to.moveTo(0, -to.state.tl)
+	to.moveLP(0, -to.state.tl)
 }
 
 // setTextMatrix "Tm".
@@ -492,7 +607,7 @@ func (to *textObject) setCharSpacing(x float64) {
 		return
 	}
 	to.state.tc = x
-	if verboseGeom {
+	if verboseText {
 		common.Log.Info("setCharSpacing: %.2f state=%s", x, to.state.String())
 	}
 }
@@ -779,7 +894,7 @@ func (to *textObject) renderText(data []byte) error {
 		tfs*th, 0,
 		0, tfs,
 		0, state.trise)
-	if verboseGeom {
+	if verboseText {
 		common.Log.Info("renderText: %d codes=%+v texts=%q", len(charcodes), charcodes, texts)
 	}
 
@@ -821,7 +936,7 @@ func (to *textObject) renderText(data []byte) error {
 		// t is the displacement of the text cursor when the character is rendered.
 		t0 := transform.Point{X: (c.X*tfs + w) * th}
 		t := transform.Point{X: (c.X*tfs + state.tc + w) * th}
-		if verboseGeom {
+		if verboseText {
 			common.Log.Info("tfs=%.2f tc=%.2f tw=%.2f th=%.2f", tfs, state.tc, state.tw, th)
 			common.Log.Info("dx,dy=%.3f t0=%.3f t=%.3f", c, t0, t)
 		}
@@ -832,7 +947,7 @@ func (to *textObject) renderText(data []byte) error {
 		td := translationMatrix(t)
 		end := to.gs.CTM.Mult(to.tm).Mult(td0)
 
-		if verboseGeom {
+		if verboseText {
 			common.Log.Info("end:\n\tCTM=%s\n\t tm=%s\n"+
 				"\t td=%s xlat=%s\n"+
 				"\ttd0=%s\n\t  → %s xlat=%s",
@@ -890,11 +1005,11 @@ func translationMatrix(p transform.Point) transform.Matrix {
 	return transform.TranslationMatrix(p.X, p.Y)
 }
 
-// moveTo moves the start of line pointer by `tx`,`ty` and sets the text pointer to the
+// moveLP moves the start of line pointer by `tx`,`ty` and sets the text pointer to the
 // start of line pointer.
 // Move to the start of the next line, offset from the start of the current line by (tx, ty).
 // `tx` and `ty` are in unscaled text space units.
-func (to *textObject) moveTo(tx, ty float64) {
+func (to *textObject) moveLP(tx, ty float64) {
 	to.tlm.Concat(transform.NewMatrix(1, 0, 0, 1, tx, ty))
 	to.tm = to.tlm
 }
@@ -906,6 +1021,8 @@ type PageText struct {
 	viewMarks  []TextMark         // Public view of text marks.
 	viewTables []TextTable        // Public view of text tables.
 	pageSize   model.PdfRectangle // Page size. Used to calculate depth.
+	strokes    []*subpath
+	fills      []*subpath
 }
 
 // String returns a string describing `pt`.
@@ -1249,4 +1366,207 @@ func (to *textObject) getFontDict(name string) (fontObj core.PdfObject, err erro
 		return nil, errors.New("font not in resources")
 	}
 	return fontObj, nil
+}
+
+type shapesState struct {
+	ctm          transform.Matrix
+	parentCTM    transform.Matrix
+	subpaths     []*subpath
+	freshSubpath bool
+	firstPoint   transform.Point // First point of path in device coordinates
+}
+
+func (ss *shapesState) String() string {
+	return fmt.Sprintf("%d subpaths fresh=%t", len(ss.subpaths), ss.freshSubpath)
+}
+
+// moveTo starts a new subpath within the current path starting at the specified point.
+// `x` and `y` are in user coordinates.
+func (ss *shapesState) moveTo(x, y float64) {
+	ss.freshSubpath = true
+	ss.firstPoint = ss.devicePoint(x, y)
+	if verboseShape {
+		common.Log.Info("moveTo(%.2f,%.2f current=%.2f", x, y, ss.firstPoint)
+	}
+}
+
+// lineTo adds a line segment to the current path starting at the current point.
+// `x` and `y` are in user coordinates.
+func (ss *shapesState) lineTo(x, y float64) {
+	subpath := ss.establishSubpath()
+	p := ss.devicePoint(x, y)
+	if verboseShape {
+		common.Log.Info("lineTo(%.2f,%.2f p=%.2f subpath=%s", x, y, p, subpath)
+	}
+	subpath.add(p)
+}
+
+// cubicTo adds a cubic bezier curve to the current path starting at the current point.
+// We only care about straight lines so we just update the current point.
+func (ss *shapesState) cubicTo(x1, y1, x2, y2, x3, y3 float64) {
+	subpath := ss.establishSubpath()
+	subpath.add(ss.devicePoint(x3, y3))
+}
+
+// quadraticTo adds a quadratic bezier curve to the current path starting at the current point.
+// We only care about straight lines so we just update the current point.
+func (ss *shapesState) quadraticTo(x1, y1, x2, y2 float64) {
+	subpath := ss.establishSubpath()
+	subpath.add(ss.devicePoint(x2, y2))
+}
+
+// drawRectangle draws a rectangle of size w,h at position x,y.
+func (ss *shapesState) drawRectangle(x, y, w, h float64) {
+	if verboseShape {
+		ll := ss.devicePoint(x, y)
+		ur := ss.devicePoint(x+w, y+h)
+		r := model.PdfRectangle{Llx: ll.X, Lly: ll.Y, Urx: ur.X, Ury: ur.Y}
+		common.Log.Info("drawRectangle: %6.2f", r)
+	}
+	ss.newSubPath()
+	ss.moveTo(x, y)
+	ss.lineTo(x+w, y)
+	ss.lineTo(x+w, y+h)
+	ss.lineTo(x, y+h)
+	ss.closePath()
+}
+
+// newSubPath starts a new subpath within the current path.
+func (ss *shapesState) newSubPath() {
+	ss.clearPath()
+	if verboseShape {
+		common.Log.Info("newSubPath: %s", ss)
+	}
+}
+
+// closePath adds a line segment from the current point to the beginning of the current subpath.
+// If there is no current point, this is a no-op.
+func (ss *shapesState) closePath() {
+	if ss.freshSubpath {
+		ss.subpaths = append(ss.subpaths, newSubpath(ss.firstPoint))
+		ss.freshSubpath = false
+	}
+	ss.subpaths[len(ss.subpaths)-1].close()
+	if verboseShape {
+		common.Log.Info("closePath: %s", ss)
+	}
+}
+
+// clearPath clears the current path. There is no current point after this operation.
+func (ss *shapesState) clearPath() {
+	ss.subpaths = nil
+	ss.freshSubpath = false
+	if verboseShape {
+		common.Log.Info("CLEAR: ss=%s", ss)
+	}
+}
+
+// stroke appends the current subpath to `strokes`.
+func (ss *shapesState) stroke(strokes *[]*subpath) {
+	*strokes = append(*strokes, ss.subpaths...)
+	if verboseShape {
+		common.Log.Info("STROKE: %d strokes ss=%s", len(*strokes), ss)
+	}
+}
+
+// fill appends the current subpaths to `fills`.
+func (ss *shapesState) fill(fills *[]*subpath) {
+	*fills = append(*fills, ss.subpaths...)
+	if verboseShape {
+		common.Log.Info("FILL: %d fills (%d new) ss=%s", len(*fills), len(ss.subpaths), ss)
+		// for i, p := range *fills {
+		// 	fmt.Printf("%4d: %s\n", i, p)
+		// 	if i == 10 {
+		// 		break
+		// 	}
+		// }
+	}
+}
+
+// devicePoint returns user coordinates `x`, `y` as a transform.Point in device coordinates.
+func (ss *shapesState) devicePoint(x, y float64) transform.Point {
+	ctm := ss.parentCTM.Mult(ss.ctm)
+	x, y = ctm.Transform(x, y)
+	return transform.NewPoint(x, y)
+}
+
+// establishSubpath creates a new subpath if one hasn't already been established.
+// It reaturns the current subpath.
+func (ss *shapesState) establishSubpath() *subpath {
+	if lastPoint, established := ss.lastPoint(); !established {
+		ss.subpaths = append(ss.subpaths, newSubpath(lastPoint))
+	}
+	ss.freshSubpath = false
+	return ss.subpaths[len(ss.subpaths)-1]
+}
+
+// lastPoint returns the last point added to if there was one.
+// If there is a fresh point, return it.
+// Otherwise if the last subpath was closed, return its last point.
+// It neither of the above cases is true we must be in an established subpath.
+func (ss *shapesState) lastPoint() (transform.Point, bool) {
+	if ss.freshSubpath {
+		return ss.firstPoint, false
+	}
+	n := len(ss.subpaths)
+	if n > 0 && ss.subpaths[n-1].closed {
+		return ss.subpaths[n-1].last(), false
+	}
+	return transform.Point{}, true
+}
+
+// subpath is a list of points
+type subpath struct {
+	points []transform.Point // Path points in device coordinates.
+	closed bool              // Done with subpath?
+}
+
+// newSubpath returns a subpath containing `p`.
+func newSubpath(p transform.Point) *subpath {
+	return &subpath{points: []transform.Point{p}}
+}
+
+// last return the last point in `path`. Caller must check that `path` has at least one element
+// before calling.
+func (path *subpath) last() transform.Point {
+	return path.points[len(path.points)-1]
+}
+
+// add adds `points` to `path`.
+func (path *subpath) add(points ...transform.Point) {
+	path.points = append(path.points, points...)
+}
+
+func (path *subpath) clear() {
+	*path = subpath{}
+}
+
+func (path *subpath) close() {
+	if !equalPoints(path.points[0], path.last()) {
+		path.add(path.points[0])
+	}
+	path.closed = true
+	path.removeDuplicates()
+}
+
+func (path *subpath) removeDuplicates() {
+	if len(path.points) == 0 {
+		return
+	}
+	uniques := []transform.Point{path.points[0]}
+	for _, p := range path.points[1:] {
+		if !equalPoints(p, uniques[len(uniques)-1]) {
+			uniques = append(uniques, p)
+		}
+	}
+	path.points = uniques
+}
+
+func (path *subpath) String() string {
+	p := path.points
+	n := len(p)
+	if n <= 5 {
+		return fmt.Sprintf("%d: %6.2f", n, p)
+	}
+	return fmt.Sprintf("%d: %6.2f %6.2f ... %6.2f", n, p[0], p[1], p[n-1])
 }

@@ -9,6 +9,8 @@ package extractor
 const (
 	verbose         = false
 	verboseGeom     = false
+	verboseShape    = false
+	verboseText     = false
 	verboseBag      = false
 	verbosePage     = false
 	verbosePara     = false

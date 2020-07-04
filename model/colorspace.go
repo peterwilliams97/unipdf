@@ -101,7 +101,7 @@ func NewPdfColorspaceFromPdfObject(obj core.PdfObject) (PdfColorspace, error) {
 			return NewPdfColorspaceSpecialPattern(), nil
 		default:
 			common.Log.Debug("ERROR: Unknown colorspace %s", *csName)
-			return nil, errRangeError
+			return nil, ErrRange
 		}
 	}
 
@@ -2284,7 +2284,7 @@ func newPdfColorspaceSpecialIndexedFromPdfObject(obj core.PdfObject) (*PdfColors
 	baseName, err := DetermineColorspaceNameFromPdfObject(obj)
 	if baseName == "Indexed" || baseName == "Pattern" {
 		common.Log.Debug("Error: Indexed colorspace cannot have Indexed/Pattern CS as base (%v)", baseName)
-		return nil, errRangeError
+		return nil, ErrRange
 	}
 
 	baseCs, err := NewPdfColorspaceFromPdfObject(obj)

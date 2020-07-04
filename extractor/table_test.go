@@ -96,6 +96,7 @@ func extractTables(filename string, pageNumbers ...int) (map[int][]stringTable, 
 	return pageTables, nil
 }
 
+// extractPageTables extracts the tables in `page` and returns them as stringTables.
 func extractPageTables(page *model.PdfPage) ([]stringTable, error) {
 	textTables, err := extractPageTextTables(page)
 	if err != nil {
@@ -108,6 +109,7 @@ func extractPageTables(page *model.PdfPage) ([]stringTable, error) {
 	return tables, nil
 }
 
+// extractPageTextTables extracts the tables in `page`.
 func extractPageTextTables(page *model.PdfPage) ([]TextTable, error) {
 	mbox, err := page.GetMediaBox()
 	if err != nil {

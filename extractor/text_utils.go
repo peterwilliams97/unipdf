@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/unidoc/unipdf/v3/common"
+	"github.com/unidoc/unipdf/v3/internal/transform"
 )
 
 // TOL is the tolerance for coordinates to be consideted equal. It is big enough to cover all
@@ -21,6 +22,41 @@ const TOL = 1.0e-6
 // isZero returns true if x is with TOL of 0.0
 func isZero(x float64) bool {
 	return math.Abs(x) < TOL
+}
+
+const grain = 0.0001
+
+func granularize(paths []*subpath) {
+	for _, path := range paths {
+		for i, p := range path.points {
+			path.points[i] = transform.Point{X: round(p.X), Y: round(p.Y)}
+		}
+	}
+}
+
+func round(x float64) float64 {
+	return grain * math.Round(x/grain)
+}
+
+// const GRAIN = 6.0
+
+// func granularize(z float64) float64 {
+// 	return GRAIN * math.Round(z/GRAIN)
+// }
+
+// equalPoints returns true if `p1` and `p2` are in the same location.
+func equalPoints(p1, p2 transform.Point) bool {
+	return p1.X == p2.X && p1.Y == p2.Y
+}
+
+// makeOrdering return an ordering over `n` ints  that is sorted by `comp`.
+func makeOrdering(n int, comp func(int, int) bool) []int {
+	ordering := make([]int, n)
+	for i := range ordering {
+		ordering[i] = i
+	}
+	sort.Slice(ordering, func(i, j int) bool { return comp(ordering[i], ordering[j]) })
+	return ordering
 }
 
 // minInt return the lesser of `a` and `b`.
@@ -299,12 +335,6 @@ func (paras paraList) eventNeighbours(events []event) map[*textPara][]int {
 		paraNeighbors[para] = neighbours
 	}
 	return paraNeighbors
-}
-
-const GRAIN = 6.0
-
-func granularize(z float64) float64 {
-	return GRAIN * math.Round(z/GRAIN)
 }
 
 // isTextSpace returns true if `text` contains nothing but space code points.

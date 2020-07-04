@@ -190,7 +190,7 @@ func TestTextExtractionReference(t *testing.T) {
 		return
 	}
 	for _, er := range extractReferenceTests {
-		er.runTest(t)
+		er.runTextTest(t)
 	}
 }
 
@@ -714,10 +714,26 @@ type extractReference struct {
 	pageNum  int
 }
 
-// runTest runs the test described by `er`. It checks that the text extracted from the page of the
+// runTextTest runs the test described by `er`. It checks that the text extracted from the page of the
 // PDF matches the reference text file.
-func (er extractReference) runTest(t *testing.T) {
+func (er extractReference) runTextTest(t *testing.T) {
 	compareExtractedTextToReference(t, er.pdfPath(), er.pageNum, er.textPath())
+}
+
+// runTextTest runs the test described by `er`. It checks that the text extracted from the page of the
+// PDF matches the reference text file.
+func (er extractReference) runTableTest(t *testing.T) {
+	csvPaths, err := er.tablePaths()
+	if err != nil {
+		t.Fatalf("tablePaths: err=%v", err)
+	}
+	if len(csvPaths) == 0 {
+		t.Fatalf("tablePaths: No csv paths")
+	}
+	common.Log.Notice("runTableTest: %q pageNum=%d csvPaths=%d:%q",
+		er.pdfPath(), er.pageNum, len(csvPaths), csvPaths)
+
+	compareExtractedTablesToReference(t, er.pdfPath(), er.pageNum, csvPaths)
 }
 
 // pdfPath returns the path of the PDF file for test `er`.
@@ -729,6 +745,15 @@ func (er extractReference) pdfPath() string {
 func (er extractReference) textPath() string {
 	pageStr := fmt.Sprintf("page%03d", er.pageNum)
 	return changeDirExt(referenceFolder, er.filename, pageStr, ".txt")
+}
+
+// COVID-19.page4.table1.csv
+func (er extractReference) tablePaths() ([]string, error) {
+	pageStr := fmt.Sprintf("page%03d.table*", er.pageNum)
+	pattern := changeDirExt(referenceFolder, er.filename, pageStr, ".csv")
+	paths, err := filepath.Glob(pattern)
+	common.Log.Notice("Glob(%q)=%d %q", pattern, len(paths), paths)
+	return paths, err
 }
 
 // compareExtractedTextToReference extracts text from (1-offset) page `pageNum` of PDF `filename`
@@ -759,8 +784,8 @@ func compareExtractedTextToReference(t *testing.T, filename string, pageNum int,
 	}
 	actualText, _ := pageTextAndMarks(t, desc, page)
 
-	actualText = reduceSpaces(norm.NFKC.String(actualText))
-	expectedText = reduceSpaces(norm.NFKC.String(expectedText))
+	actualText = normalize(actualText)
+	expectedText = normalize(expectedText)
 	if actualText != expectedText {
 		common.Log.Info("actual   ===================== %d\n%s\n=====================", len(actualText), actualText)
 		common.Log.Info("expected ===================== %d\n%s\n=====================", len(expectedText), expectedText)
@@ -1014,6 +1039,12 @@ func containsTerms(t *testing.T, terms []string, actualText string) bool {
 		}
 	}
 	return true
+}
+
+// reduceSpaces returns `text` with runs of spaces of any kind (spaces, tabs, line breaks, etc)
+// reduced to a single space.
+func normalize(text string) string {
+	return reduceSpaces(norm.NFKC.String(text))
 }
 
 // reduceSpaces returns `text` with runs of spaces of any kind (spaces, tabs, line breaks, etc)

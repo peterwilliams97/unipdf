@@ -63,6 +63,17 @@ TODO
 * Get top to bottom text extraction working.
 * Add Type1C font support. We need this to get the correct font metrics.
 
+TABLES
+------
+* Combine adjacent tables. Add rows for intervening headers
+* Grids
+* Horizontal rulings only
+* Use margins
+
+### Alternate approach
+Build single width columns first then merge
+
+
 tables/Audit.pdf          p1
 tables/backlog.pdf
 tables/bare.pdf

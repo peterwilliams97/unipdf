@@ -294,7 +294,6 @@ func NewPdfWriter() PdfWriter {
 			w.addObject(&outputIntents)
 			w.addObject(iccProfile)
 			catalogDict.Set("OutputIntents", &outputIntents)
-			common.Log.Info("catalogDict=%s", catalogDict.Keys())
 		}
 	}
 
@@ -1363,7 +1362,7 @@ func documentMetadataContents() ([]byte, error) {
 	}
 
 	wrt(`<?xpacket begin='ï»¿' id='W5M0MpCehiHzreSzNTczkc9d'?>`)
-	wrt("<?adobe-xap-filters esc=\"CRLF\"?>")
+	wrt(`<?adobe-xap-filters esc="CRLF"?>`)
 	wrt("<x:xmpmeta xmlns:x='adobe:ns:meta/' x:xmptk='XMP toolkit 2.9.1-13, framework 1.6'>")
 	wrt("<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#' xmlns:iX='http://ns.adobe.com/iX/1.0/'>")
 	wrt(`<rdf:Description rdf:about="" xmlns:xapMM='http://ns.adobe.com/xap/1.0/mm/' xapMM:DocumentID='%s'/>`, documentUUID())

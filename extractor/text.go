@@ -20,6 +20,7 @@ import (
 	"github.com/unidoc/unipdf/v3/internal/textencoding"
 	"github.com/unidoc/unipdf/v3/internal/transform"
 	"github.com/unidoc/unipdf/v3/model"
+	"golang.org/x/xerrors"
 )
 
 // maxFormStack is the maximum form stack recursion depth. It has to be low enough to avoid a stack
@@ -51,12 +52,15 @@ func (e *Extractor) ExtractTextWithStats() (extracted string, numChars int, numM
 func (e *Extractor) ExtractPageText() (*PageText, int, int, error) {
 	pt, numChars, numMisses, err := e.extractPageText(e.contents, e.resources, transform.IdentityMatrix(), 0)
 	if err != nil {
-		return nil, numChars, numMisses, err
+		return nil, 0, 0, err
 	}
 	pt.computeViews()
-	procBuf(pt)
+	err = procBuf(pt)
+	if err != nil {
+		return nil, 0, 0, err
+	}
 
-	return pt, numChars, numMisses, err
+	return pt, numChars, numMisses, nil
 }
 
 // extractPageText returns the text contents of content stream `e` and resouces `resources` as a
@@ -103,9 +107,9 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 			}
 
 			switch operand {
-			case "q": //Push current graphics state to the stack.
+			case "q": // Push current graphics state to the stack.
 				savedStates.push(&state)
-			case "Q": // // Pop graphics state from the stack.
+			case "Q": // Pop graphics state from the stack.
 				if !savedStates.empty() {
 					state = *savedStates.top()
 					if len(savedStates) >= 2 {
@@ -246,7 +250,7 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 					return err
 				}
 				err = to.setFont(name, size)
-				to.invalidFont = unsupportedFontErr(err)
+				to.invalidFont = xerrors.Is(err, core.ErrNotSupported)
 				if err != nil && !to.invalidFont {
 					return err
 				}
@@ -462,46 +466,30 @@ func (e *Extractor) extractPageText(contents string, resources *model.PdfPageRes
 	strokeRulings := makeStrokeGrids(pageText.strokes)
 	fillRulings := makeFillGrids(pageText.fills)
 
-	if len(strokeRulings) > 0 {
-		common.Log.Notice("Strokes: %d", len(pageText.strokes))
-		common.Log.Notice("Stroke Grids: %d", len(strokeRulings))
-		for i, g := range strokeRulings {
-			fmt.Printf("%4d: %d rulings\n", i, len(g))
-			for i, v := range g {
-				fmt.Printf("%8d: %s\n", i, v)
+	if verboseShape {
+		if len(strokeRulings) > 0 {
+			common.Log.Info("Strokes: %d", len(pageText.strokes))
+			common.Log.Info("Stroke Grids: %d", len(strokeRulings))
+			for i, g := range strokeRulings {
+				fmt.Printf("%4d: %d rulings\n", i, len(g))
+				for i, v := range g {
+					fmt.Printf("%8d: %s\n", i, v)
+				}
 			}
 		}
-	}
-
-	if len(fillRulings) > 0 {
-		common.Log.Notice("Fills: %d", len(pageText.fills))
-		common.Log.Notice("Fill Grids: %d", len(fillRulings))
-		for i, g := range fillRulings {
-			fmt.Printf("%4d: %d rulings\n", i, len(g))
-			for i, v := range g {
-				fmt.Printf("%8d: %s\n", i, v)
+		if len(fillRulings) > 0 {
+			common.Log.Info("Fills: %d", len(pageText.fills))
+			common.Log.Info("Fill Grids: %d", len(fillRulings))
+			for i, g := range fillRulings {
+				fmt.Printf("%4d: %d rulings\n", i, len(g))
+				for i, v := range g {
+					fmt.Printf("%8d: %s\n", i, v)
+				}
 			}
 		}
 	}
 
 	return pageText, state.numChars, state.numMisses, err
-}
-
-// unsupportedFontErr returns true if `err` indicated that the selected font or encoding is not supported.
-func unsupportedFontErr(err error) bool {
-	if err == model.ErrFontNotSupported ||
-		err == model.ErrType1CFontNotSupported ||
-		err == model.ErrType3FontNotSupported ||
-		err == model.ErrTTCmapNotSupported {
-		return true
-	}
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "unsupported font encoding:") ||
-		strings.Contains(errStr, "unexpected subtable format:") ||
-		strings.Contains(errStr, "fonts based on PostScript outlines are not supported")
 }
 
 // textResult is used for holding results of PDF form processig
@@ -620,10 +608,6 @@ func (to *textObject) setFont(name string, size float64) error {
 	to.state.tfs = size
 	font, err := to.getFont(name)
 	if err != nil {
-		if err == model.ErrFontNotSupported {
-			// TODO(peterwilliams97): Do we need to handle this case in a special way?
-			return err
-		}
 		return err
 	}
 	to.state.tfont = font
@@ -1071,6 +1055,44 @@ func (pt *PageText) computeViews() {
 	for orient := 0; orient < 360 && n > 0; orient += 90 {
 		marks := make([]*textMark, 0, len(pt.marks)-n)
 		for _, tm := range pt.marks {
+			if tm.orient == orient {
+				marks = append(marks, tm)
+			}
+		}
+		if len(marks) > 0 {
+			parasOrient := makeTextPage(marks, pt.pageSize)
+			paras = append(paras, parasOrient...)
+			n -= len(marks)
+		}
+	}
+	// Build the public viewable fields from the paraList.
+	b := new(bytes.Buffer)
+	paras.writeText(b)
+	pt.viewText = b.String()
+	pt.viewMarks = paras.toTextMarks()
+	pt.viewTables = paras.tables()
+}
+
+// ApplyArea processes the page text only within the specified area `bbox`.
+// Each time ApplyArea is called, it updates the result set in `pt`.
+// Can be called multiple times in a row with different bounding boxes.
+func (pt *PageText) ApplyArea(bbox model.PdfRectangle) {
+	// Extract text paragraphs one orientation at a time.
+	// If there are texts with several orientations on a page then the all the text of the same
+	// orientation gets extracted togther.
+
+	filtered := make([]*textMark, 0, len(pt.marks))
+	for _, mark := range pt.marks {
+		if intersects(mark.bbox(), bbox) {
+			filtered = append(filtered, mark)
+		}
+	}
+
+	var paras paraList
+	n := len(filtered)
+	for orient := 0; orient < 360 && n > 0; orient += 90 {
+		marks := make([]*textMark, 0, len(filtered)-n)
+		for _, tm := range filtered {
 			if tm.orient == orient {
 				marks = append(marks, tm)
 			}

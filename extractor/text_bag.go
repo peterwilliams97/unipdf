@@ -279,13 +279,13 @@ func (b *wordBag) removeWord(word *textWord, depthIdx int) {
 	}
 }
 
-// mergWordBags merges the bags less than a character width to the left of a bag into that bag.
-func mergWordBags(paraWords []*wordBag) []*wordBag {
+// mergeWordBags merges the bags less than a character width to the left of a bag into that bag.
+func mergeWordBags(paraWords []*wordBag) []*wordBag {
 	if len(paraWords) <= 1 {
 		return paraWords
 	}
 	if verbosePara {
-		common.Log.Info("mergWordBags:")
+		common.Log.Info("mergeWordBags:")
 	}
 	sort.Slice(paraWords, func(i, j int) bool {
 		pi, pj := paraWords[i], paraWords[j]

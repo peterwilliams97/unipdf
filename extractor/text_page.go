@@ -74,7 +74,7 @@ func makeTextPage(marks []*textMark, pageSize model.PdfRectangle) paraList {
 
 	// Divide the page into rectangular regions for each paragraph and creata a wordBag for each one.
 	paraWords := dividePage(pageWords, pageSize.Ury)
-	paraWords = mergWordBags(paraWords)
+	paraWords = mergeWordBags(paraWords)
 
 	// Arrange the contents of each paragraph wordBag into lines and the lines into whole words.
 	paras := make(paraList, 0, len(paraWords))
@@ -269,8 +269,9 @@ func sameLine(para1, para2 *textPara) bool {
 func (paras paraList) tables() []TextTable {
 	var tables []TextTable
 	for _, para := range paras {
-		if para.table != nil {
-			tables = append(tables, para.table.toTextTable())
+		t := para.table
+		if t != nil && t.exportableTable() {
+			tables = append(tables, t.toTextTable())
 		}
 	}
 	return tables

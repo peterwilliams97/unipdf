@@ -8,6 +8,7 @@ package extractor
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"unicode/utf8"
 
@@ -54,9 +55,7 @@ func (paras paraList) extractTables() paraList {
 func (paras paraList) findTables() []*textTable {
 	paras.addNeighbours()
 	// Pre-sort by reading direction then depth
-	sort.Slice(paras, func(i, j int) bool {
-		return diffReadingDepth(paras[i], paras[j]) < 0
-	})
+	sort.Slice(paras, func(i, j int) bool { return diffReadingDepth(paras[i], paras[j]) < 0 })
 
 	var tables []*textTable
 	for _, para := range paras {
@@ -159,8 +158,10 @@ func (t *textTable) growTable() {
 			downRight := down[len(down)-1]
 			if downRight != nil && !downRight.isCell && downRight == right[len(right)-1] {
 				growDown(down)
-				growRight(right)
-				t.put(t.w-1, t.h-1, downRight)
+				if right = t.getRight(); right != nil {
+					growRight(right)
+					t.put(t.w-1, t.h-1, downRight)
+				}
 				changed = true
 			}
 		}
@@ -240,7 +241,9 @@ func (para *textPara) sparseCandidate() *tableCandidate {
 		return nil
 	}
 	if c.Ury < a.Lly-tableYGapR*a.fontsize() {
-		common.Log.Info("sparseCandidate: gap\n\ta=%s\n\tc=%s", a, c)
+		if verboseTable {
+			common.Log.Info("sparseCandidate: gap\n\ta=%s\n\tc=%s", a, c)
+		}
 		return nil
 	}
 	d := b.below
@@ -248,7 +251,9 @@ func (para *textPara) sparseCandidate() *tableCandidate {
 		d = nil
 	}
 	if d != nil && d.Ury < b.Lly-tableYGapR*b.fontsize() {
-		common.Log.Info("sparseCandidate: gap\n\tb=%s\n\td=%s", a, c)
+		if verboseTable {
+			common.Log.Info("sparseCandidate: gap\n\tb=%s\n\td=%s", a, c)
+		}
 		return nil
 	}
 
@@ -323,8 +328,10 @@ func (t *tableCandidate) growTableSparse() candidateList {
 	candidates := candidateList{t}
 	var wentDown, wentRight bool
 	for goingDown, goingRight := true, true; goingDown || goingRight; goingDown, goingRight = wentDown, wentRight {
-		common.Log.Info("-growTableSparse: %d candidates goingDown=%t goingRight=%t",
-			len(candidates), goingDown, goingRight)
+		if verboseTable {
+			common.Log.Info("-growTableSparse: %d candidates goingDown=%t goingRight=%t",
+				len(candidates), goingDown, goingRight)
+		}
 		for _, c := range candidates {
 			wentDown, wentRight = false, false
 			c.validate()
@@ -361,8 +368,10 @@ func (t *tableCandidate) growTableSparse() candidateList {
 				bestStr = best.String()
 			}
 		}
-		common.Log.Info("+growTableSparse: %d candidates goingDown=%t goingRight=%t %s",
-			len(candidates), goingDown, goingRight, bestStr)
+		if verboseTable {
+			common.Log.Info("+growTableSparse: %d candidates goingDown=%t goingRight=%t %s",
+				len(candidates), goingDown, goingRight, bestStr)
+		}
 	}
 	return candidates
 }
@@ -413,9 +422,11 @@ func (cl *candidateList) add(candidate *tableCandidate) {
 	// 	survivors = candidateList{cellW, cellH}
 	// }
 	*cl = survivors
-	common.Log.Info("add ----------- %d survivors", len(survivors))
-	for i, c := range survivors {
-		fmt.Printf("%4d: %d x %d\n", i, c.w, c.h)
+	if verboseTable {
+		common.Log.Info("add ----------- %d survivors", len(survivors))
+		for i, c := range survivors {
+			fmt.Printf("%4d: %d x %d\n", i, c.w, c.h)
+		}
 	}
 }
 
@@ -428,7 +439,9 @@ func (cl *candidateList) best(final bool) *tableCandidate {
 				c.right = c.right[:c.h]
 				c.bottom = c.bottomV
 				if len(c.bottomV) != c.w {
-					common.Log.Error("inconsisent: %s", c)
+					if verboseTableError {
+						common.Log.Error("inconsisent: %s", c)
+					}
 					return nil
 				}
 			}
@@ -649,7 +662,9 @@ func (c *tableCandidate) valid(final bool) bool {
 				rowCounts[y]++
 				colCounts[x]++
 				if len(cell.text()) > tableBigText {
-					common.Log.Info("BIG: %d %d %s", numBig, len(cell.text()), cell)
+					if verboseTable {
+						common.Log.Info("BIG: %d %d %s", numBig, len(cell.text()), cell)
+					}
 					numBig++
 				}
 			}
@@ -658,7 +673,9 @@ func (c *tableCandidate) valid(final bool) bool {
 	c.validate()
 	maxBig := minInt(int(math.Round(float64(w*h)*0.2)), 5)
 	if numBig > maxBig {
-		common.Log.Notice("valid: numBig=%d > maxBig=%d: %s", numBig, maxBig, c)
+		if verboseTable {
+			common.Log.Info("valid: numBig=%d > maxBig=%d: %s", numBig, maxBig, c)
+		}
 		return false
 	}
 	minRow := 2
@@ -670,8 +687,10 @@ func (c *tableCandidate) valid(final bool) bool {
 		if empty {
 			under++
 			if lastEmpty || under > (y+1)/2 {
-				common.Log.Notice("valid: lastEmpty=%t || under=%d > (y=%d+1)/2: %s",
-					lastEmpty, under, y, c)
+				if verboseTable {
+					common.Log.Notice("valid: lastEmpty=%t || under=%d > (y=%d+1)/2: %s",
+						lastEmpty, under, y, c)
+				}
 				return false
 			}
 		} else {
@@ -681,7 +700,9 @@ func (c *tableCandidate) valid(final bool) bool {
 	}
 	for x := 0; x < w; x++ {
 		if colCounts[x] < minCol {
-			common.Log.Notice("valid:  colCounts[x] < minCol: %s", c)
+			if verboseTable {
+				common.Log.Notice("valid:  colCounts[x] < minCol: %s", c)
+			}
 			return false
 		}
 	}
@@ -750,6 +771,9 @@ func (t *tableCandidate) toTable() *textTable {
 }
 
 func (t *tableCandidate) log(title string) {
+	if !verboseTable {
+		return
+	}
 	common.Log.Info("tableCandidate: %s %s **********************", title, t)
 	log := func(name string, paras paraList) {
 		texts := make([]string, len(paras))
@@ -886,13 +910,17 @@ func (t *textTable) computeBbox() model.PdfRectangle {
 
 // toTextTable returns the TextTable corresponding to `t`.
 func (t *textTable) toTextTable() TextTable {
-	common.Log.Info("toTextTable: %d x %d", t.w, t.h)
+	if verboseTable {
+		common.Log.Info("toTextTable: %d x %d", t.w, t.h)
+	}
 	cells := make([][]TableCell, t.h)
 	for y := 0; y < t.h; y++ {
 		cells[y] = make([]TableCell, t.w)
 		for x := 0; x < t.w; x++ {
 			c := t.get(x, y)
-			fmt.Printf("%4d %2d: %s\n", x, y, c)
+			if verboseTable {
+				fmt.Printf("%4d %2d: %s\n", x, y, c)
+			}
 			if c == nil {
 				continue
 			}
@@ -903,6 +931,25 @@ func (t *textTable) toTextTable() TextTable {
 	}
 	return TextTable{W: t.w, H: t.h, Cells: cells}
 }
+
+// exportableTable returns true if `t` looks like a table.
+func (t *textTable) exportableTable() bool {
+	isList := func(x, y int) bool {
+		c := t.get(0, y)
+		text := c.text()
+		n := utf8.RuneCountInString(text)
+		isNum := listNumber.MatchString(text)
+		return n <= 1 || isNum
+	}
+	for y := 0; y < t.h; y++ {
+		if !isList(0, y) {
+			return true
+		}
+	}
+	return false
+}
+
+var listNumber = regexp.MustCompile(`\d+\.?`)
 
 // get returns the cell at `x`, `y`.
 func (t *textTable) get(x, y int) *textPara {

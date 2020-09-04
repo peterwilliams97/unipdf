@@ -12,7 +12,9 @@ import (
 	"unicode"
 
 	"github.com/unidoc/unipdf/v3/common"
+	"github.com/unidoc/unipdf/v3/contentstream"
 	"github.com/unidoc/unipdf/v3/internal/transform"
+	"github.com/unidoc/unipdf/v3/model"
 )
 
 // TOL is the tolerance for coordinates to be consideted equal. It is big enough to cover all
@@ -404,3 +406,42 @@ var (
 		0x204E: "\u0359", //   ⁎ → o͙
 	}
 )
+
+// NormalizePage rotates pages by their viewer rotation flag and turns the flag off.
+// Returns a description of the normalisation and an error code.
+func NormalizePage(page *model.PdfPage) (string, error) {
+	mbox, err := page.GetMediaBox()
+	if err != nil {
+		return "", err
+	}
+	if page.Rotate == nil || *page.Rotate == 0 {
+		return "", nil
+	}
+	// Normalize all pages to no viewer rotation.
+	cc := contentstream.NewContentCreator()
+	switch *page.Rotate {
+	case 270:
+		cc.Add_cm(0, -1, 1, 0, 0, mbox.Width())
+		mbox.Llx, mbox.Lly = mbox.Lly, mbox.Llx
+		mbox.Urx, mbox.Ury = mbox.Ury, mbox.Urx
+	case 180:
+		cc.Add_cm(-1, 0, 0, -1, mbox.Width(), mbox.Height())
+	case 90:
+		cc.Add_cm(0, 1, -1, 0, mbox.Height(), 0)
+		mbox.Llx, mbox.Lly = mbox.Lly, mbox.Llx
+		mbox.Urx, mbox.Ury = mbox.Ury, mbox.Urx
+	}
+	rotateOps := cc.Operations().String()
+	desc := fmt.Sprintf("Rotate=%d° %q mbox=%.1f", *page.Rotate, rotateOps, *mbox)
+	contents, err := page.GetContentStreams()
+	if err != nil {
+		return desc, err
+	}
+	contents = append([]string{rotateOps}, contents...)
+	// *page = page.Duplicate() // XXX(peterwilliams97): Not necessary unless `page` is reused.
+	if err = page.SetContentStreams(contents, nil); err != nil {
+		return desc, err
+	}
+	page.Rotate = nil
+	return desc, nil
+}

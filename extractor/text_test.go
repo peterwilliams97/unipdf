@@ -52,6 +52,9 @@ var doStress bool
 func init() {
 	flag.BoolVar(&doStress, "extractor-stresstest", false, "Run text extractor stress tests.")
 	common.SetLogger(common.NewConsoleLogger(common.LogLevelInfo))
+	common.Log.Info("      forceTest=%t", forceTest)
+	common.Log.Info("   corpusFolder=%q", corpusFolder)
+	common.Log.Info("referenceFolder=%q", referenceFolder)
 	isTesting = true
 }
 
@@ -300,16 +303,10 @@ var fileExtractionTests = []struct {
 // testExtractFile tests the ExtractTextWithStats text extractor on `filename` and compares the
 // extracted text to `pageTerms`. If `lazy` is true, the PDF is lazily loaded.
 func testExtractFileOptions(t *testing.T, filename string, pageTerms map[int][]string, lazy bool) {
-	filepath := filepath.Join(corpusFolder, filename)
-	exists := checkFileExists(filepath)
-	if !exists {
-		if forceTest {
-			t.Fatalf("filepath=%q does not exist", filepath)
-		}
-		t.Logf("%q not found", filepath)
+	filepath, exists := corpusFilepath(t, filename)
+	if !forceTest && !exists {
 		return
 	}
-
 	_, actualPageText := extractPageTexts(t, filepath, lazy)
 	for _, pageNum := range sortedKeys(pageTerms) {
 		expectedTerms, ok := pageTerms[pageNum]
@@ -341,7 +338,7 @@ func extractPageTexts(t *testing.T, filename string, lazy bool) (int, map[int]st
 	if err != nil {
 		t.Fatalf("GetNumPages failed. filename=%q err=%v", filename, err)
 	}
-	pageText := map[int]string{}
+	pageText := make(map[int]string)
 	for pageNum := 1; pageNum <= numPages; pageNum++ {
 		page, err := pdfReader.GetPage(pageNum)
 		if err != nil {
@@ -828,7 +825,7 @@ func testTermMarks(t *testing.T, text string, textMarks *TextMarkArray, n int) {
 		return
 	}
 	common.Log.Debug("testTermMarks: text=%d n=%d", len(text), n)
-	// We build our substrings out of whole runes, not fragments of utf-8 codes from the text
+	// We build our substrings out of whole runes, not fragments of utf-8 codes from the text.
 	runes := []rune(text)
 	if n > len(runes)/2 {
 		n = len(runes) / 2
@@ -1041,8 +1038,7 @@ func containsTerms(t *testing.T, terms []string, actualText string) bool {
 	return true
 }
 
-// reduceSpaces returns `text` with runs of spaces of any kind (spaces, tabs, line breaks, etc)
-// reduced to a single space.
+// normalize returns a version of `text` that is NFKC normalized and has reduceSpaces() applied.
 func normalize(text string) string {
 	return reduceSpaces(norm.NFKC.String(text))
 }
@@ -1233,4 +1229,19 @@ func readTextFile(filename string) (string, error) {
 	defer f.Close()
 	b, err := ioutil.ReadAll(f)
 	return string(b), err
+}
+
+// corpusFilepath returns the full path of `filename` in the corpus directory.
+// NOTE: Caller must check the corpus is present of the local computer
+func corpusFilepath(t *testing.T, filename string) (string, bool) {
+	fullpath := filepath.Join(corpusFolder, filename)
+	exists := checkFileExists(fullpath)
+	if !exists {
+		if forceTest {
+			t.Fatalf("filepath=%q does not exist. ", fullpath)
+		} else {
+			t.Logf("filepath=%q does not exist. Skipping test.", fullpath)
+		}
+	}
+	return fullpath, exists
 }
